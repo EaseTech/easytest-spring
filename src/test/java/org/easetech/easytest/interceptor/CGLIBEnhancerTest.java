@@ -12,7 +12,7 @@ import org.junit.runner.RunWith;
 @RunWith(DataDrivenTestRunner.class)
 public class CGLIBEnhancerTest {
 
-    @Intercept() public static RealItemService itemService = new RealItemService();
+    @Intercept public static RealItemService itemService = new RealItemService();
 
     @Test
     public void testGetItemEnh() {

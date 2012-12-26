@@ -1,6 +1,8 @@
 
 package org.easetech.easytest.example;
 
+import org.easetech.easytest.annotation.Report;
+
 import org.easetech.easytest.annotation.DataLoader;
 import org.easetech.easytest.annotation.Param;
 import org.easetech.easytest.loader.LoaderType;
@@ -8,7 +10,8 @@ import org.junit.Test;
 import org.junit.runner.RunWith;
 
 @RunWith(org.easetech.easytest.runner.DataDrivenTestRunner.class)
-@DataLoader(filePaths = { "input-data.xml" }, loaderType = LoaderType.XML)
+@DataLoader(filePaths = { "classpath:input-data.xml" }, loaderType = LoaderType.XML)
+@Report
 public class TestXMLDataLoader {
     
     
@@ -30,7 +33,7 @@ public class TestXMLDataLoader {
     }
     
     @Test
-    @DataLoader(filePaths = { "input-data-mod.xml" }, loaderType = LoaderType.XML)
+    @DataLoader(filePaths = { "classpath:input-data-mod.xml" }, loaderType = LoaderType.XML)
     public Item getItemsDataFromXMLLoaderModified(@Param(name = "libraryId")
     String libraryId, @Param(name = "itemId")
     String itemId, @Param(name = "itemType")

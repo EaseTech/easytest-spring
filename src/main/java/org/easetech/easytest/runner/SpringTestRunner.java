@@ -1,24 +1,33 @@
 
 package org.easetech.easytest.runner;
 
+import org.easetech.easytest.config.ConfigLoader;
+
 import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Date;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
-import org.aopalliance.intercept.MethodInterceptor;
 import org.easetech.easytest.annotation.DataLoader;
 import org.easetech.easytest.annotation.Intercept;
 import org.easetech.easytest.annotation.Param;
+import org.easetech.easytest.interceptor.InternalSpringInterceptor;
+import org.easetech.easytest.interceptor.MethodIntercepter;
 import org.easetech.easytest.internal.EasyAssignments;
+import org.easetech.easytest.io.Resource;
+import org.easetech.easytest.io.ResourceLoader;
+import org.easetech.easytest.io.ResourceLoaderStrategy;
 import org.easetech.easytest.loader.DataConverter;
 import org.easetech.easytest.loader.Loader;
 import org.easetech.easytest.loader.LoaderFactory;
 import org.easetech.easytest.loader.LoaderType;
+import org.easetech.easytest.reports.data.DurationBean;
 import org.easetech.easytest.reports.data.ReportDataContainer;
+import org.easetech.easytest.reports.data.TestResultBean;
 import org.easetech.easytest.util.DataContext;
 import org.easetech.easytest.util.RunAftersWithOutputData;
 import org.easetech.easytest.util.TestInfo;
@@ -45,9 +54,9 @@ import org.springframework.aop.framework.ProxyFactory;
 import org.springframework.test.context.junit4.SpringJUnit4ClassRunner;
 
 /**
- * A Spring based implementation of {@link Suite} that encapsulates the {@link EasyTestRunner} in order to provide users with clear
- * indication of which test method is run and what is the input test data that the method is run with. For example, when
- * a user runs the test method with name : <B><I>getTestData</I></B> with the following test data:
+ * A Spring based implementation of {@link Suite} that encapsulates the {@link EasyTestRunner} in order to provide users
+ * with clear indication of which test method is run and what is the input test data that the method is run with. For
+ * example, when a user runs the test method with name : <B><I>getTestData</I></B> with the following test data:
  * <ul>
  * <li><B>"libraryId=1 and itemId=2"</B></li>
  * <li><B>"libraryId=2456 and itemId=789"</B></li><br>
@@ -70,17 +79,16 @@ import org.springframework.test.context.junit4.SpringJUnit4ClassRunner;
  */
 public class SpringTestRunner extends Suite {
 
-    
     /**
      * An instance of {@link Map} that contains the data to be written to the File
      */
     private static Map<String, List<Map<String, Object>>> writableData = new HashMap<String, List<Map<String, Object>>>();
-    
+
     /**
      * The default rowNum within the {@link #writableData}'s particular method data.
      */
     private static int rowNum = 0;
-    
+
     /**
      * The name of the method currently being executed. Used for populating the {@link #writableData} map.
      */
@@ -90,7 +98,7 @@ public class SpringTestRunner extends Suite {
      * The report container which holds all the reporting data
      */
     private ReportDataContainer testReportContainer = null;
-    
+
     /**
      * An instance of logger associated with the test framework.
      */
@@ -136,12 +144,14 @@ public class SpringTestRunner extends Suite {
          * Convenient class member to get the list of {@link FrameworkMethod} that this runner will execute.
          */
         List<FrameworkMethod> frameworkMethods;
-        
+
         /**
-         * The actual instance of the test class. 
-         * This is extremely handy in cases where we want to reflectively set instance fields on a test class.
+         * The actual instance of the test class. This is extremely handy in cases where we want to reflectively set
+         * instance fields on a test class.
          */
         Object testInstance;
+
+        TestResultBean testResult;
 
         /**
          * 
@@ -153,54 +163,63 @@ public class SpringTestRunner extends Suite {
         public EasyTestRunner(Class<?> klass) throws InitializationError {
             super(klass);
             try {
+                testReportContainer = new ReportDataContainer(getTestClass().getJavaClass());
                 testInstance = getTestClass().getOnlyConstructor().newInstance();
                 getTestContextManager().prepareTestInstance(testInstance);
+                ConfigLoader.loadTestConfigurations(getTestClass().getJavaClass(), testInstance);
                 instrumentClass(getTestClass().getJavaClass());
-                
+
             } catch (Exception e) {
-                Assert.fail("Test failed while trying to instrument fileds in the class : " + getTestClass().getJavaClass());
+                Assert.fail("Test failed while trying to instrument fileds in the class : "
+                    + getTestClass().getJavaClass() + " Exception is : " + e);
             }
         }
-        
+
         /**
          * Instrument the class's field that are marked with {@link Intercept} annotation
+         * 
          * @param testClass the class under test
          * @throws IllegalArgumentException if an exception occurred
          * @throws IllegalAccessException if an exception occurred
          * @throws AopConfigException if an exception occurred
          * @throws InstantiationException if an exception occurred
          */
-        protected void instrumentClass(Class<?> testClass) throws IllegalArgumentException, IllegalAccessException, AopConfigException, InstantiationException{
-            Field[] fields = testClass.getFields();
-            for(Field field : fields){
-                Intercept interceptor = field.getAnnotation(Intercept.class);
-                if(interceptor != null){
-                    Class<? extends MethodInterceptor> interceptorClass = interceptor.interceptor();
-                    //This is the field we want to enhance
-                    Object fieldInstance = field.get(testInstance);
-                    ProxyFactory factory = new ProxyFactory();
-                    factory.setTarget(fieldInstance);
-                    factory.addAdvice(interceptorClass.newInstance());
-                    Object proxy = factory.getProxy();
-                    try{
-                        field.set(testInstance,proxy);
-                    }catch(Exception e){
-                        Assert.fail("Failed while trying to instrument the class for Intercept annotation with exception : " + e.getStackTrace());
+        protected void instrumentClass(Class<?> testClass) throws IllegalArgumentException, IllegalAccessException,
+            AopConfigException, InstantiationException {
+            Field[] fields = testClass.getDeclaredFields();
+            try {
+                for (Field field : fields) {
+                    field.setAccessible(true);
+                    Intercept interceptor = field.getAnnotation(Intercept.class);
+                    if (interceptor != null) {
+                        Class<? extends MethodIntercepter> interceptorClass = interceptor.interceptor();
+                        // This is the field we want to enhance
+                        Object fieldInstance = field.get(testInstance);
+                        ProxyFactory factory = new ProxyFactory();
+                        factory.setTarget(fieldInstance);
+                        InternalSpringInterceptor internalIntercepter = new InternalSpringInterceptor(); 
+                        internalIntercepter.setUserIntercepter(interceptorClass.newInstance());
+                        factory.addAdvice(internalIntercepter);
+                        Object proxy = factory.getProxy();
+                        field.set(testInstance, proxy);
                     }
                 }
-            }
-        }
 
+            } catch (Exception e) {
+                throw new RuntimeException(e);
+            }
+
+        }
 
         /**
          * Try to collect any initialization errors, if any.
          * 
          * @param errors
          */
-        @Override
+
         protected void collectInitializationErrors(List<Throwable> errors) {
             super.collectInitializationErrors(errors);
-            //validateDataPointFields(errors);
+            // validateDataPointFields(errors);
         }
 
         /**
@@ -210,7 +229,7 @@ public class SpringTestRunner extends Suite {
          * @param method the {@link FrameworkMethod}
          * @return an overridden test method Name
          */
-        @Override
+
         protected String testName(final FrameworkMethod method) {
             return String.format("%s", method.getName());
         }
@@ -225,17 +244,17 @@ public class SpringTestRunner extends Suite {
          * 
          * @return list of {@link FrameworkMethod}
          */
-        @Override
+
         protected List<FrameworkMethod> computeTestMethods() {
             if (frameworkMethods != null && !frameworkMethods.isEmpty()) {
                 return frameworkMethods;
             }
             List<FrameworkMethod> finalList = new ArrayList<FrameworkMethod>();
-            //Iterator<FrameworkMethod> testMethodsItr = super.computeTestMethods().iterator();
+            // Iterator<FrameworkMethod> testMethodsItr = super.computeTestMethods().iterator();
             Class<?> testClass = getTestClass().getJavaClass();
             for (FrameworkMethod methodWithData : methodsWithData) {
                 String superMethodName = DataConverter.getFullyQualifiedTestName(methodWithData.getName(), testClass);
-                for(FrameworkMethod method : super.computeTestMethods()) {
+                for (FrameworkMethod method : super.computeTestMethods()) {
 
                     if (superMethodName.equals(DataConverter.getFullyQualifiedTestName(method.getName(), testClass))) {
                         // Load the data,if any, at the method level
@@ -273,20 +292,20 @@ public class SpringTestRunner extends Suite {
          * 
          * @param errors list of any errors while validating the {@link DataPoint} field.
          */
-//        private void validateDataPointFields(List<Throwable> errors) {
-//            Field[] fields = getTestClass().getJavaClass().getDeclaredFields();
-//
-//            for (Field each : fields)
-//                if (each.getAnnotation(DataPoint.class) != null && !Modifier.isStatic(each.getModifiers()))
-//                    errors.add(new Error("DataPoint field " + each.getName() + " must be static"));
-//        }
+        // private void validateDataPointFields(List<Throwable> errors) {
+        // Field[] fields = getTestClass().getJavaClass().getDeclaredFields();
+        //
+        // for (Field each : fields)
+        // if (each.getAnnotation(DataPoint.class) != null && !Modifier.isStatic(each.getModifiers()))
+        // errors.add(new Error("DataPoint field " + each.getName() + " must be static"));
+        // }
 
         /**
          * Validate that there could ever be only one constructor.
          * 
          * @param errors list of any errors while validating the Constructor
          */
-        @Override
+
         protected void validateConstructor(List<Throwable> errors) {
             validateOnlyOneConstructor(errors);
         }
@@ -296,15 +315,14 @@ public class SpringTestRunner extends Suite {
          * 
          * @param errors list of any errors while validating test method
          */
-        @Override
+
         protected void validateTestMethods(List<Throwable> errors) {
-            //Do Nothing as we now support public non void arg test methods
+            // Do Nothing as we now support public non void arg test methods
         }
-        
-        @Override
+
         protected Object createTest() throws Exception {
             return null;
-            
+
         }
 
         /**
@@ -313,8 +331,7 @@ public class SpringTestRunner extends Suite {
          * @param method the Framework Method
          * @return a compiled {@link Statement} object to be evaluated
          */
-        
-        @Override
+
         public Statement methodBlock(final FrameworkMethod method) {
             return new ParamAnchor(method, getTestClass());
         }
@@ -329,35 +346,35 @@ public class SpringTestRunner extends Suite {
          * data from the test method. This method will make sure that the data is written to the output file once after
          * the Runner has completed and not for every instance of the test method.
          */
-        @Override
+
         protected Statement withAfterClasses(Statement statement) {
             List<FrameworkMethod> afters = getTestClass().getAnnotatedMethods(AfterClass.class);
             List<FrameworkMethod> testMethods = getTestClass().getAnnotatedMethods(Test.class);
             List<TestInfo> testInfoList = new ArrayList<TestInfo>();
             TestInfo testInfo = null;
-            //populateTestInfo(testInfo);
+            // populateTestInfo(testInfo);
             // THere would always be atleast one method associated with the Runner, else validation would fail.
-            for(FrameworkMethod method : testMethods){
-            
-            // Only if the return type of the Method is not VOID, we try to determine the right loader and data files.
+            for (FrameworkMethod method : testMethods) {
+
+                // Only if the return type of the Method is not VOID, we try to determine the right loader and data
+                // files.
                 DataLoader loaderAnnotation = method.getAnnotation(DataLoader.class);
                 if (loaderAnnotation != null) {
-                    testInfo = determineLoader(loaderAnnotation , getTestClass());
+                    testInfo = determineLoader(loaderAnnotation, getTestClass());
 
                 } else {
                     loaderAnnotation = getTestClass().getJavaClass().getAnnotation(DataLoader.class);
                     if (loaderAnnotation != null) {
-                        testInfo = determineLoader(loaderAnnotation , getTestClass());
+                        testInfo = determineLoader(loaderAnnotation, getTestClass());
                     }
                 }
-                if(testInfo != null){
+                if (testInfo != null) {
                     testInfo.setMethodName(method.getName());
                     testInfoList.add(testInfo);
                 }
-                
-            
+
             }
-            return new RunAftersWithOutputData(statement, afters,  null, testInfoList, writableData, testReportContainer);
+            return new RunAftersWithOutputData(statement, afters, null, testInfoList, writableData, testReportContainer);
         }
 
         /**
@@ -431,7 +448,6 @@ public class SpringTestRunner extends Suite {
                 return fTestClass;
             }
 
-            @Override
             public void evaluate() throws Throwable {
                 runWithAssignment(EasyAssignments.allUnassigned(fTestMethod.getMethod(), getTestClass()));
                 LOG.debug("ParamAnchor evaluate");
@@ -447,8 +463,8 @@ public class SpringTestRunner extends Suite {
              * {@link #runWithCompleteAssignment(EasyAssignments)} for each {@link EasyAssignments} element in the
              * {@link #listOfAssignments}
              * 
-             * @param parameterAssignment an instance of {@link EasyAssignments} identifying the parameters that needs to be
-             *            supplied test data
+             * @param parameterAssignment an instance of {@link EasyAssignments} identifying the parameters that needs
+             *            to be supplied test data
              * @throws Throwable if any exception occurs.
              */
             protected void runWithAssignment(EasyAssignments parameterAssignment) throws Throwable {
@@ -457,8 +473,8 @@ public class SpringTestRunner extends Suite {
                     boolean isFirstSetOfArguments = listOfAssignments.isEmpty();
                     for (int i = 0; i < potentialAssignments.size(); i++) {
                         if (isFirstSetOfArguments) {
-                            EasyAssignments assignments = EasyAssignments
-                                .allUnassigned(fTestMethod.getMethod(), getTestClass());
+                            EasyAssignments assignments = EasyAssignments.allUnassigned(fTestMethod.getMethod(),
+                                getTestClass());
                             listOfAssignments.add(assignments.assignNext(potentialAssignments.get(i)));
                         } else {
                             EasyAssignments assignments = listOfAssignments.get(i);
@@ -495,21 +511,20 @@ public class SpringTestRunner extends Suite {
             protected void runWithCompleteAssignment(final EasyAssignments complete) throws InstantiationException,
                 IllegalAccessException, InvocationTargetException, NoSuchMethodException, Throwable {
                 new BlockJUnit4ClassRunner(getTestClass().getJavaClass()) {
-                    @Override
+
                     protected void collectInitializationErrors(List<Throwable> errors) {
                         // do nothing
                     }
 
-                    @Override
                     public Statement methodBlock(FrameworkMethod method) {
                         final Statement statement = super.methodBlock(method);
-                      //Sample Run Notifier to catch any runnable events for a test and do something.
+                        // Sample Run Notifier to catch any runnable events for a test and do something.
                         final RunNotifier notifier = new RunNotifier();
                         notifier.addListener(new EasyTestRunListener());
-                        final EachTestNotifier eachNotifier= new EachTestNotifier(notifier,null);
+                        final EachTestNotifier eachNotifier = new EachTestNotifier(notifier, null);
                         eachNotifier.fireTestStarted();
                         return new Statement() {
-                            @Override
+
                             public void evaluate() throws Throwable {
                                 try {
                                     statement.evaluate();
@@ -520,8 +535,8 @@ public class SpringTestRunner extends Suite {
                                 } catch (Throwable e) {
                                     eachNotifier.addFailure(e);
                                     throw e;
-                                    
-                                }finally {
+
+                                } finally {
                                     eachNotifier.fireTestFinished();
                                 }
                             }
@@ -529,12 +544,10 @@ public class SpringTestRunner extends Suite {
                         };
                     }
 
-                    @Override
                     protected Statement methodInvoker(FrameworkMethod method, Object test) {
                         return methodCompletesWithParameters(method, complete, test);
                     }
 
-                    @Override
                     public Object createTest() throws Exception {
                         return testInstance;
                     }
@@ -558,14 +571,49 @@ public class SpringTestRunner extends Suite {
              * @param freshInstance a fresh instance of the class for which the method needs to be invoked.
              * @return an instance of {@link Statement}
              */
-            private Statement methodCompletesWithParameters(final FrameworkMethod method, final EasyAssignments complete,
-                final Object freshInstance) {
+            private Statement methodCompletesWithParameters(final FrameworkMethod method,
+                final EasyAssignments complete, final Object freshInstance) {
+
+                final RunNotifier testRunNotifier = new RunNotifier();
+                final TestRunDurationListener testRunDurationListener = new TestRunDurationListener();
+                testRunNotifier.addListener(testRunDurationListener);
+                final EachTestNotifier eachRunNotifier = new EachTestNotifier(testRunNotifier, null);
+
                 return new Statement() {
-                    @Override
+
                     public void evaluate() throws Throwable {
+                        String currentMethodName = method.getMethod().getName();
+                        testResult = new TestResultBean();
+                        testResult.setMethod(currentMethodName);
+                        testResult.setDate(new Date());
                         try {
                             final Object[] values = complete.getMethodArguments(true);
+                            // Log Statistics about the test method as well as the actual testSubject, if required.
+                            boolean testContainsInputParams = (values.length != 0);
+                            Map<String, Object> inputData = null;
+                            // invoke test method
+                            eachRunNotifier.fireTestStarted();
                             Object returnObj = method.invokeExplosively(freshInstance, values);
+                            eachRunNotifier.fireTestFinished();
+                            DurationBean testItemDurationBean = new DurationBean(currentMethodName,
+                                testRunDurationListener.getStartInNano(), testRunDurationListener.getEndInNano());
+                            testResult.addTestItemDurationBean(testItemDurationBean);
+
+                            testResult.setOutput((returnObj == null) ? "void" : returnObj);
+                            testResult.setPassed(Boolean.TRUE);
+                            if (!mapMethodName.equals(method.getMethod().getName())) {
+                                // if mapMethodName is not same as the current executing method name
+                                // then assign that to mapMethodName to write to writableData
+                                mapMethodName = method.getMethod().getName();
+                                // initialize the row number.
+                                rowNum = 0;
+                            }
+                            if (writableData.get(mapMethodName) != null) {
+                                inputData = writableData.get(mapMethodName).get(rowNum);
+                                testResult.setInput(inputData);
+                            } else {
+                                testResult.setInput(null);
+                            }
                             if (returnObj != null) {
                                 LOG.debug("returnObj:" + returnObj);
                                 if (!mapMethodName.equals(method.getMethod().getName())) {
@@ -576,13 +624,37 @@ public class SpringTestRunner extends Suite {
                                 if (writableData.get(mapMethodName) != null) {
                                     LOG.debug("writableData.get(mapMethodName)" + writableData.get(mapMethodName)
                                         + " ,rowNum:" + rowNum);
-                                    writableData.get(mapMethodName).get(rowNum++).put(Loader.ACTUAL_RESULT, returnObj);
+
+                                    Map<String, Object> writableRow = writableData.get(mapMethodName).get(rowNum);
+                                    writableRow.put(Loader.ACTUAL_RESULT, returnObj);
+                                    if (testContainsInputParams) {
+                                        LOG.debug("writableData.get(mapMethodName)" + writableData.get(mapMethodName)
+                                            + " ,rowNum:" + rowNum);
+                                        inputData.put(Loader.ACTUAL_RESULT, returnObj);
+                                    }
+                                    Object expectedResult = writableRow.get(Loader.EXPECTED_RESULT);
+                                    // if expected result exist in user input test data,
+                                    // then compare that with actual output result
+                                    // and write the status back to writable map data.
+                                    if (expectedResult != null) {
+                                        LOG.debug("Expected result exists");
+                                        if (expectedResult.toString().equals(returnObj.toString())) {
+                                            writableRow.put(Loader.TEST_STATUS, Loader.TEST_PASSED);
+                                        } else {
+                                            writableRow.put(Loader.TEST_STATUS, Loader.TEST_FAILED);
+                                        }
+                                    }
+                                    rowNum++;
+
+                                    // writableData.get(mapMethodName).get(rowNum++).put(Loader.ACTUAL_RESULT,
+                                    // returnObj);
                                 }
 
                             }
                         } catch (CouldNotGenerateValueException e) {
                             // ignore
                         }
+                        testReportContainer.addTestResult(testResult);
                     }
                 };
             }
@@ -598,13 +670,11 @@ public class SpringTestRunner extends Suite {
 
     }
 
-
-
     /**
-     * A List of {@link EasyTestRunner}s 
+     * A List of {@link EasyTestRunner}s
      */
     private final ArrayList<Runner> runners = new ArrayList<Runner>();
-    
+
     /**
      * List of {@link FrameworkMethod} that does not have any external test data associated with them.
      */
@@ -620,16 +690,16 @@ public class SpringTestRunner extends Suite {
      * 
      * @return a list of {@link DataDrivenTestRunner}
      */
-    @Override
+
     protected List<Runner> getChildren() {
         return runners;
     }
 
     /**
      * 
-     * Construct a new {@link SpringTestRunner}. During construction, we will load the test data, and then we will create a list
-     * of {@link EasyTestRunner}. each instance of {@link DataDrivenTestRunner} in the list will correspond to a single method
-     * in the Test Class under test.<br>
+     * Construct a new {@link SpringTestRunner}. During construction, we will load the test data, and then we will
+     * create a list of {@link EasyTestRunner}. each instance of {@link DataDrivenTestRunner} in the list will
+     * correspond to a single method in the Test Class under test.<br>
      * The algorithm is as follows:<br>
      * <ul>
      * <li>STEP 1: Load the test data. This will also do the check whether there exists a {@link DataLoader} annotation
@@ -650,10 +720,11 @@ public class SpringTestRunner extends Suite {
      * </ol>
      * Iteration over each method ends.<br>
      * 
-     * Finally create an instance of {@link EasyTestRunner} and make it use all the different types of methods we identified.<br>
-     * We need to identify methods with data and methods with no data primarily to group the test methods together
-     * as well as to efficiently create new test methods for each method that has test data associated with it.
-     * This whole process will happen for each of the test class that is part of the Suite.
+     * Finally create an instance of {@link EasyTestRunner} and make it use all the different types of methods we
+     * identified.<br>
+     * We need to identify methods with data and methods with no data primarily to group the test methods together as
+     * well as to efficiently create new test methods for each method that has test data associated with it. This whole
+     * process will happen for each of the test class that is part of the Suite.
      * 
      * @param klass the test class
      * @throws InitializationError if an initializationError occurs
@@ -695,12 +766,12 @@ public class SpringTestRunner extends Suite {
         }
         runners.add(new EasyTestRunner(klass));
     }
-    
+
     /**
-     * Returns a {@link Statement}: We override this method as it was being called twice 
-     * for the same class. Looks like a bug in JUnit.
+     * Returns a {@link Statement}: We override this method as it was being called twice for the same class. Looks like
+     * a bug in JUnit.
      */
-    @Override
+
     protected Statement withBeforeClasses(Statement statement) {
         return statement;
     }
@@ -757,28 +828,40 @@ public class SpringTestRunner extends Suite {
             testData = method.getAnnotation(DataLoader.class);
         }
         if (testData != null) {
-            TestInfo testInfo = determineLoader(testData , getTestClass());
+            TestInfo testInfo = determineLoader(testData, getTestClass());
             Loader dataLoader = testInfo.getDataLoader();
             if (testInfo.getDataLoader() == null) {
                 Assert.fail("The framework currently does not support the specified Loader type. "
                     + "You can provide the custom Loader by choosing LoaderType.CUSTOM in TestData "
                     + "annotation and providing your custom loader using DataLoader annotation.");
             } else {
-                Map<String, List<Map<String, Object>>> data = dataLoader.loadData(testInfo.getFilePaths());
-                // We also maintain the copy of the actual data for our write functionality.
-                writableData.putAll(data);
-                DataContext.setData(DataConverter.appendClassName(data, currentTestClass));
-                DataContext.setConvertedData(DataConverter.convert(data, currentTestClass));
+                ResourceLoader resourceLoader = new ResourceLoaderStrategy(getTestClass().getJavaClass());
+                for (String filePath : testInfo.getFilePaths()) {
+                    Resource resource = resourceLoader.getResource(filePath);
+                    try {
+                        if (resource.exists()) {
+                            Map<String, List<Map<String, Object>>> data = dataLoader.loadData(resource);
+                            // We also maintain the copy of the actual data for our write functionality.
+                            writableData.putAll(data);
+                            DataContext.setData(DataConverter.appendClassName(data, currentTestClass));
+                            DataContext.setConvertedData(DataConverter.convert(data, currentTestClass));
+                        }
+                    } catch (Exception e) {
+                        PARAM_LOG.error("Error occured while trying to find the resource with path {} ",
+                            resource.getResourceName(), e);
+                        throw new RuntimeException(e);
+                    }
+                }
 
             }
         }
     }
-    
+
     /**
-     * Returns a {@link Statement}: We override this method as it was being called twice 
-     * for the same class. Looks like a bug in JUnit.
+     * Returns a {@link Statement}: We override this method as it was being called twice for the same class. Looks like
+     * a bug in JUnit.
      */
-    @Override
+
     protected Statement withAfterClasses(Statement statement) {
         return statement;
     }
@@ -791,9 +874,10 @@ public class SpringTestRunner extends Suite {
      *            data back to the file.
      * @param testClass the class that the {@link TestInfo} object will be associated with
      * 
-     * @return {@link TestInfo} an instance of {@link TestInfo} containing information about the currently executing test.
+     * @return {@link TestInfo} an instance of {@link TestInfo} containing information about the currently executing
+     *         test.
      */
-    private TestInfo determineLoader(DataLoader testData , TestClass testClass) {
+    private TestInfo determineLoader(DataLoader testData, TestClass testClass) {
         TestInfo result = new TestInfo(testClass);
         String[] dataFiles = testData.filePaths();
         LoaderType loaderType = testData.loaderType();

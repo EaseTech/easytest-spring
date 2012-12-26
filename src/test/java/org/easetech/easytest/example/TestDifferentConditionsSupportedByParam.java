@@ -45,7 +45,7 @@ import org.junit.runner.RunWith;
 import org.springframework.util.Assert;
 
 @RunWith(DataDrivenTestRunner.class)
-@DataLoader(filePaths={"paramTestConditions.csv"})
+@DataLoader(filePaths={"classpath:paramTestConditions.csv"})
 public class TestDifferentConditionsSupportedByParam {
     
     @BeforeClass
@@ -135,13 +135,13 @@ public class TestDifferentConditionsSupportedByParam {
         }
     }
     
-    @Test
-    public void testNonGenericQueueImplementation(@Param(name="items") BlockingDeque items){
-        Assert.notNull(items);
-        for(Object item : items){
-            System.out.println("testNonGenericListImplementation : "+item);
-        }
-    }
+//    @Test
+//    public void testNonGenericQueueImplementation(@Param(name="items") BlockingDeque items){
+//        Assert.notNull(items);
+//        for(Object item : items){
+//            System.out.println("testNonGenericListImplementation : "+item);
+//        }
+//    }
     
     @Test
     public void testNonGenericBlockingQueueImplementation(@Param(name="items") BlockingQueue items){
@@ -151,13 +151,13 @@ public class TestDifferentConditionsSupportedByParam {
         }
     }
     
-    @Test
-    public void testNonGenericDequeImplementation(@Param(name="items") Deque items){
-        Assert.notNull(items);
-        for(Object item : items){
-            System.out.println("testNonGenericListImplementation : "+item);
-        }
-    }
+//    @Test
+//    public void testNonGenericDequeImplementation(@Param(name="items") Deque items){
+//        Assert.notNull(items);
+//        for(Object item : items){
+//            System.out.println("testNonGenericListImplementation : "+item);
+//        }
+//    }
     
     @Test
     public void testGenericQueueImplementation(@Param(name="items") Collection<ItemId> items){
@@ -279,13 +279,13 @@ public class TestDifferentConditionsSupportedByParam {
         }
     }
     
-    @Test
-    public void testLinkedBlockingDeque(@Param(name="items") LinkedBlockingDeque<ItemId> items){
-        Assert.notNull(items);
-        for(ItemId item : items){
-            System.out.println("testNonGenericListImplementation : "+item);
-        }
-    }
+//    @Test
+//    public void testLinkedBlockingDeque(@Param(name="items") LinkedBlockingDeque<ItemId> items){
+//        Assert.notNull(items);
+//        for(ItemId item : items){
+//            System.out.println("testNonGenericListImplementation : "+item);
+//        }
+//    }
     
     @Test
     public void testLinkedBlockingQueue(@Param(name="items") LinkedBlockingQueue<ItemId> items){
