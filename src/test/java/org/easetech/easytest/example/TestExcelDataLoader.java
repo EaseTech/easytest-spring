@@ -17,7 +17,7 @@ import org.slf4j.LoggerFactory;
 public class TestExcelDataLoader {
     
     @Intercept
-    static RealItemService itemService = new RealItemService();
+    static ItemService itemService = new RealItemService();
     
     /**
      * An instance of logger associated with the test framework.
