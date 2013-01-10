@@ -30,7 +30,7 @@ import org.junit.runner.RunWith;
  * 
  */
 @RunWith(DataDrivenTestRunner.class)
-@DataLoader(filePaths = { "classpath:getDDTData.csv" }, loaderType = LoaderType.CSV)
+@DataLoader(filePaths = { "classpath:getDDTData.csv" })
 public class TestConditionsSupportedByDataDrivenTest {
     
     @Test

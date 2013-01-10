@@ -13,7 +13,7 @@ import org.slf4j.LoggerFactory;
 
 
 @RunWith(DataDrivenTestRunner.class)
-@DataLoader(filePaths = { "classpath:org/easetech/data/testExcelData.xls" }, loaderType = LoaderType.EXCEL)
+@DataLoader(filePaths = { "classpath:org/easetech/data/testExcelData.xls" })
 public class TestExcelDataLoader {
     
     @Intercept
@@ -66,7 +66,7 @@ public class TestExcelDataLoader {
     }
 
     @Test
-    @DataLoader(filePaths = { "classpath:org/easetech/data/test-update.xls" }, loaderType = LoaderType.EXCEL)
+    @DataLoader(filePaths = { "classpath:org/easetech/data/test-update.xls" })
     public Item getExcelTestDataWithReturnType(@Param(name = "libraryId")
     Float libraryId, @Param(name = "itemId")
     Float itemId) {
