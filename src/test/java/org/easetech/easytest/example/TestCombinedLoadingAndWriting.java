@@ -10,11 +10,11 @@ import org.junit.runner.RunWith;
 public class TestCombinedLoadingAndWriting {
 
     @Test
-    @DataLoader(filePaths = { "classpath:input-data-mod-again.xml" }, loaderType = LoaderType.XML)
-    public Item getItemsDataFromXMLLoaderModified(@Param(name = "libraryId")
-    String libraryId, @Param(name = "itemId")
-    String itemId, @Param(name = "itemType")
-    String itemType, @Param(name = "expectedItems")
+    @DataLoader(filePaths = { "classpath:input-data-mod-again.xml" })
+    public Item getItemsDataFromXMLLoaderModified(@Param("libraryId")
+    String libraryId, @Param("itemId")
+    String itemId, @Param("itemType")
+    String itemType, @Param("expectedItems")
     String expectedItems) {
         System.out.print("Executing TestCombinedLoadingAndWriting#getItemsDataFromXMLLoaderModified :");
         System.out.println("LibraryId :" + libraryId + " itemId : " + itemId + " itemType :" + itemType
@@ -27,9 +27,9 @@ public class TestCombinedLoadingAndWriting {
     }
     
     @Test
-    @DataLoader(filePaths = { "classpath:org/easetech/data/test-combined.xls" }, loaderType = LoaderType.EXCEL)
-    public Item getExcelTestDataWithReturnType(@Param(name = "libraryId")
-    Float libraryId, @Param(name = "itemId")
+    @DataLoader(filePaths = { "classpath:org/easetech/data/test-combined.xls" })
+    public Item getExcelTestDataWithReturnType(@Param("libraryId")
+    Float libraryId, @Param("itemId")
     Float itemId) {
         System.out.print("Executing  TestCombinedLoadingAndWriting#getExcelTestDataWithReturnType : ");
         ItemService itemService = new RealItemService();
