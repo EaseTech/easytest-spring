@@ -9,7 +9,7 @@ public class DelayedObject implements Delayed {
     private Long value;
     
 
-    @Override
+    
     public String toString() {
         return "DelayedObject [value=" + value + "]";
     }
@@ -31,13 +31,13 @@ public class DelayedObject implements Delayed {
         this.value = value;
     }
 
-    @Override
+    
     public int compareTo(Delayed o) {
         
         return 1;
     }
 
-    @Override
+    
     public long getDelay(TimeUnit unit) {
         
         return 0;
