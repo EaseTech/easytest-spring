@@ -99,7 +99,6 @@ public class SpringTestRunner extends BaseSuite {
      * @param klass the test class
      * @throws InitializationError if an initializationError occurs
      */
-    @SuppressWarnings("unchecked")
     public SpringTestRunner(Class<?> klass) throws InitializationError {
         super(klass);
         runners.add(new EasyTestRunner(klass));
@@ -297,19 +296,6 @@ public class SpringTestRunner extends BaseSuite {
             frameworkMethods = finalList;
             return finalList;
         }
-
-        /**
-         * Validate the {@link DataPoint} filed level annotation.
-         * 
-         * @param errors list of any errors while validating the {@link DataPoint} field.
-         */
-        // private void validateDataPointFields(List<Throwable> errors) {
-        // Field[] fields = getTestClass().getJavaClass().getDeclaredFields();
-        //
-        // for (Field each : fields)
-        // if (each.getAnnotation(DataPoint.class) != null && !Modifier.isStatic(each.getModifiers()))
-        // errors.add(new Error("DataPoint field " + each.getName() + " must be static"));
-        // }
 
         /**
          * Validate that there could ever be only one constructor.

@@ -56,7 +56,7 @@ public class TestDifferentConditionsSupportedByParam {
     }
     
     @Test
-    public void testNonGenericListInterface(@Param("items") List items){
+    public void testNonGenericListInterface(@Param(name="items") List items){
         Assert.notNull(items);
         for(Object item : items){
             System.out.println("testNonGenericListInterface : "+item);
@@ -64,7 +64,7 @@ public class TestDifferentConditionsSupportedByParam {
     }
     
     @Test
-    public void testGenericListInterface(@Param("items") List<ItemId> items){
+    public void testGenericListInterface(@Param(name="items") List<ItemId> items){
         Assert.notNull(items);
         for(ItemId item : items){
             System.out.println("testGenericListInterface : "+item);
@@ -72,7 +72,7 @@ public class TestDifferentConditionsSupportedByParam {
     }
     
     @Test
-    public void testGenericListImplementation(@Param("items") LinkedList<ItemId> items){
+    public void testGenericListImplementation(@Param(name="items") LinkedList<ItemId> items){
         Assert.notNull(items);
         for(ItemId item : items){
             System.out.println("testGenericListImplementation : "+item);
@@ -80,7 +80,7 @@ public class TestDifferentConditionsSupportedByParam {
     }
     
     @Test
-    public void testNonGenericListImplementation(@Param("items") LinkedList items){
+    public void testNonGenericListImplementation(@Param(name="items") LinkedList items){
         Assert.notNull(items);
         for(Object item : items){
             System.out.println("testNonGenericListImplementation : "+item);
@@ -88,7 +88,7 @@ public class TestDifferentConditionsSupportedByParam {
     }
     
     @Test
-    public void testGenericSetInterface(@Param("dates") Set<Date> items){
+    public void testGenericSetInterface(@Param(name="dates") Set<Date> items){
         Assert.notNull(items);
         for(Date date : items){
             System.out.println("testNonGenericListImplementation : "+date);
@@ -96,7 +96,7 @@ public class TestDifferentConditionsSupportedByParam {
     }
     
     @Test
-    public void testNonGenericSetInterface(@Param("items") Set items){
+    public void testNonGenericSetInterface(@Param(name="items") Set items){
         Assert.notNull(items);
         for(Object item : items){
             System.out.println("testNonGenericListImplementation : "+item);
@@ -104,7 +104,7 @@ public class TestDifferentConditionsSupportedByParam {
     }
     
     @Test
-    public void testNonGenericSetImplementation(@Param("items") TreeSet items){
+    public void testNonGenericSetImplementation(@Param(name="items") TreeSet items){
         Assert.notNull(items);
         for(Object item : items){
             System.out.println("testNonGenericListImplementation : "+item);
@@ -112,7 +112,7 @@ public class TestDifferentConditionsSupportedByParam {
     }
     
     @Test
-    public void testGenericSetImplementation(@Param("items") SortedSet<Long> items){
+    public void testGenericSetImplementation(@Param(name="items") SortedSet<Long> items){
         Assert.notNull(items);
         for(Long item : items){
             System.out.println("testNonGenericListImplementation : "+item);
@@ -120,7 +120,7 @@ public class TestDifferentConditionsSupportedByParam {
     }
     
     @Test
-    public void testGenericQueueInterface(@Param("items") Queue<ItemId> items){
+    public void testGenericQueueInterface(@Param(name="items") Queue<ItemId> items){
         Assert.notNull(items);
         for(ItemId item : items){
             System.out.println("testNonGenericListImplementation : "+item);
@@ -128,7 +128,7 @@ public class TestDifferentConditionsSupportedByParam {
     }
     
     @Test
-    public void testNonGenericQueueInterface(@Param("items") Queue items){
+    public void testNonGenericQueueInterface(@Param(name="items") Queue items){
         Assert.notNull(items);
         for(Object item : items){
             System.out.println("testNonGenericListImplementation : "+item);
@@ -136,7 +136,7 @@ public class TestDifferentConditionsSupportedByParam {
     }
     
 //    @Test
-//    public void testNonGenericQueueImplementation(@Param("items") BlockingDeque items){
+//    public void testNonGenericQueueImplementation(@Param(name="items") BlockingDeque items){
 //        Assert.notNull(items);
 //        for(Object item : items){
 //            System.out.println("testNonGenericListImplementation : "+item);
@@ -144,7 +144,7 @@ public class TestDifferentConditionsSupportedByParam {
 //    }
     
     @Test
-    public void testNonGenericBlockingQueueImplementation(@Param("items") BlockingQueue items){
+    public void testNonGenericBlockingQueueImplementation(@Param(name="items") BlockingQueue items){
         Assert.notNull(items);
         for(Object item : items){
             System.out.println("testNonGenericListImplementation : "+item);
@@ -152,7 +152,7 @@ public class TestDifferentConditionsSupportedByParam {
     }
     
 //    @Test
-//    public void testNonGenericDequeImplementation(@Param("items") Deque items){
+//    public void testNonGenericDequeImplementation(@Param(name="items") Deque items){
 //        Assert.notNull(items);
 //        for(Object item : items){
 //            System.out.println("testNonGenericListImplementation : "+item);
@@ -160,7 +160,7 @@ public class TestDifferentConditionsSupportedByParam {
 //    }
     
     @Test
-    public void testGenericQueueImplementation(@Param("items") Collection<ItemId> items){
+    public void testGenericQueueImplementation(@Param(name="items") Collection<ItemId> items){
         Assert.notNull(items);
         for(ItemId item : items){
             System.out.println("testNonGenericListImplementation : "+item);
@@ -168,7 +168,7 @@ public class TestDifferentConditionsSupportedByParam {
     }
     //FROM HERE
     @Test
-    public void testAbstractCollection(@Param("items") AbstractCollection<ItemId> items){
+    public void testAbstractCollection(@Param(name="items") AbstractCollection<ItemId> items){
         Assert.notNull(items);
         for(ItemId item : items){
             System.out.println("testNonGenericListImplementation : "+item);
@@ -176,7 +176,7 @@ public class TestDifferentConditionsSupportedByParam {
     }
     
     @Test
-    public void testAbstractList(@Param("items") AbstractList<ItemId> items){
+    public void testAbstractList(@Param(name="items") AbstractList<ItemId> items){
         Assert.notNull(items);
         for(ItemId item : items){
             System.out.println("testNonGenericListImplementation : "+item);
@@ -184,7 +184,7 @@ public class TestDifferentConditionsSupportedByParam {
     }
     
     @Test
-    public void testAbstractQueue(@Param("items") AbstractQueue<ItemId> items){
+    public void testAbstractQueue(@Param(name="items") AbstractQueue<ItemId> items){
         Assert.notNull(items);
         for(ItemId item : items){
             System.out.println("testNonGenericListImplementation : "+item);
@@ -192,7 +192,7 @@ public class TestDifferentConditionsSupportedByParam {
     }
 
     @Test
-    public void testAbstractSequentialList(@Param("items") AbstractSequentialList<ItemId> items){
+    public void testAbstractSequentialList(@Param(name="items") AbstractSequentialList<ItemId> items){
         Assert.notNull(items);
         for(ItemId item : items){
             System.out.println("testNonGenericListImplementation : "+item);
@@ -200,7 +200,7 @@ public class TestDifferentConditionsSupportedByParam {
     }
     
     @Test
-    public void testAbstractSet(@Param("items") AbstractSet<ComparableObject> items){
+    public void testAbstractSet(@Param(name="items") AbstractSet<ComparableObject> items){
         Assert.notNull(items);
         for(ComparableObject item : items){
             System.out.println("testNonGenericListImplementation : "+item);
@@ -208,7 +208,7 @@ public class TestDifferentConditionsSupportedByParam {
     }
     
     @Test
-    public void testArrayBlockingQueue(@Param("items") ArrayBlockingQueue<Float> items){
+    public void testArrayBlockingQueue(@Param(name="items") ArrayBlockingQueue<Float> items){
         Assert.notNull(items);
         for(Float item : items){
             System.out.println("testNonGenericListImplementation : "+item);
@@ -216,7 +216,7 @@ public class TestDifferentConditionsSupportedByParam {
     }
     
     @Test
-    public void testArrayDeque(@Param("items") ArrayDeque<ItemId> items){
+    public void testArrayDeque(@Param(name="items") ArrayDeque<ItemId> items){
         Assert.notNull(items);
         for(ItemId item : items){
             System.out.println("testNonGenericListImplementation : "+item);
@@ -224,7 +224,7 @@ public class TestDifferentConditionsSupportedByParam {
     }
     
     @Test
-    public void testArrayList(@Param("items") ArrayList<ItemId> items){
+    public void testArrayList(@Param(name="items") ArrayList<ItemId> items){
         Assert.notNull(items);
         for(ItemId item : items){
             System.out.println("testNonGenericListImplementation : "+item);
@@ -232,7 +232,7 @@ public class TestDifferentConditionsSupportedByParam {
     }
     
     @Test
-    public void testAttributeList(@Param("items") AttributeList items){
+    public void testAttributeList(@Param(name="items") AttributeList items){
         Assert.notNull(items);
         for(Object item : items){
             System.out.println("testNonGenericListImplementation : "+item);
@@ -240,7 +240,7 @@ public class TestDifferentConditionsSupportedByParam {
     }
     
     @Test
-    public void testConcurrentLinkedQueue(@Param("items") ConcurrentLinkedQueue<ItemId> items){
+    public void testConcurrentLinkedQueue(@Param(name="items") ConcurrentLinkedQueue<ItemId> items){
         Assert.notNull(items);
         for(ItemId item : items){
             System.out.println("testNonGenericListImplementation : "+item);
@@ -248,7 +248,7 @@ public class TestDifferentConditionsSupportedByParam {
     }
     
     @Test
-    public void testConcurrentSkipListSet(@Param("items") ConcurrentSkipListSet<ComparableObject> items){
+    public void testConcurrentSkipListSet(@Param(name="items") ConcurrentSkipListSet<ComparableObject> items){
         Assert.notNull(items);
         for(ComparableObject item : items){
             System.out.println("testNonGenericListImplementation : "+item);
@@ -256,7 +256,7 @@ public class TestDifferentConditionsSupportedByParam {
     }
     
     @Test
-    public void testCopyOnWriteArrayList(@Param("items") CopyOnWriteArrayList<ItemId> items){
+    public void testCopyOnWriteArrayList(@Param(name="items") CopyOnWriteArrayList<ItemId> items){
         Assert.notNull(items);
         for(ItemId item : items){
             System.out.println("testNonGenericListImplementation : "+item);
@@ -264,14 +264,14 @@ public class TestDifferentConditionsSupportedByParam {
     }
     
     @Test
-    public void testCopyOnWriteArraySet(@Param("items") CopyOnWriteArraySet<ItemId> items){
+    public void testCopyOnWriteArraySet(@Param(name="items") CopyOnWriteArraySet<ItemId> items){
         Assert.notNull(items);
         for(ItemId item : items){
             System.out.println("testNonGenericListImplementation : "+item);
         }
     }
     @Test
-    public void testEnumSet(@Param("items") EnumSet<Workingday> items){
+    public void testEnumSet(@Param(name="items") EnumSet<Workingday> items){
         
         Assert.notNull(items);
         for(Object item : items){
@@ -280,7 +280,7 @@ public class TestDifferentConditionsSupportedByParam {
     }
     
 //    @Test
-//    public void testLinkedBlockingDeque(@Param("items") LinkedBlockingDeque<ItemId> items){
+//    public void testLinkedBlockingDeque(@Param(name="items") LinkedBlockingDeque<ItemId> items){
 //        Assert.notNull(items);
 //        for(ItemId item : items){
 //            System.out.println("testNonGenericListImplementation : "+item);
@@ -288,7 +288,7 @@ public class TestDifferentConditionsSupportedByParam {
 //    }
     
     @Test
-    public void testLinkedBlockingQueue(@Param("items") LinkedBlockingQueue<ItemId> items){
+    public void testLinkedBlockingQueue(@Param(name="items") LinkedBlockingQueue<ItemId> items){
         Assert.notNull(items);
         for(ItemId item : items){
             System.out.println("testNonGenericListImplementation : "+item);
@@ -296,7 +296,7 @@ public class TestDifferentConditionsSupportedByParam {
     }
     
     @Test
-    public void testLinkedHashSet(@Param("items") LinkedHashSet<ItemId> items){
+    public void testLinkedHashSet(@Param(name="items") LinkedHashSet<ItemId> items){
         Assert.notNull(items);
         for(ItemId item : items){
             System.out.println("testNonGenericListImplementation : "+item);
@@ -304,7 +304,7 @@ public class TestDifferentConditionsSupportedByParam {
     }
     
     @Test
-    public void testPriorityBlockingQueue(@Param("items") PriorityBlockingQueue<ComparableObject> items){
+    public void testPriorityBlockingQueue(@Param(name="items") PriorityBlockingQueue<ComparableObject> items){
         Assert.notNull(items);
         for(ComparableObject item : items){
             System.out.println("testNonGenericListImplementation : "+item);
@@ -312,7 +312,7 @@ public class TestDifferentConditionsSupportedByParam {
     }
     
     @Test
-    public void testPriorityQueue(@Param("items") PriorityQueue<ComparableObject> items){
+    public void testPriorityQueue(@Param(name="items") PriorityQueue<ComparableObject> items){
         Assert.notNull(items);
         for(ComparableObject item : items){
             System.out.println("testNonGenericListImplementation : "+item);
@@ -320,7 +320,7 @@ public class TestDifferentConditionsSupportedByParam {
     }
     
     @Test
-    public void testRoleList(@Param("items") RoleList items){
+    public void testRoleList(@Param(name="items") RoleList items){
         Assert.notNull(items);
         for(Object item : items){
             System.out.println("testNonGenericListImplementation : "+item);
@@ -328,7 +328,7 @@ public class TestDifferentConditionsSupportedByParam {
     }
     
     @Test
-    public void testRoleUnresolvedList(@Param("items") RoleUnresolvedList items){
+    public void testRoleUnresolvedList(@Param(name="items") RoleUnresolvedList items){
         Assert.notNull(items);
         for(Object item : items){
             System.out.println("testNonGenericListImplementation : "+item);
@@ -336,7 +336,7 @@ public class TestDifferentConditionsSupportedByParam {
     }
     
     @Test
-    public void testStack(@Param("items") Stack<ItemId> items){
+    public void testStack(@Param(name="items") Stack<ItemId> items){
         Assert.notNull(items);
         for(ItemId item : items){
             System.out.println("testNonGenericListImplementation : "+item);
@@ -345,7 +345,7 @@ public class TestDifferentConditionsSupportedByParam {
 
     
     @Test
-    public void testVector(@Param("items") Vector<ItemId> items){
+    public void testVector(@Param(name="items") Vector<ItemId> items){
         Assert.notNull(items);
         for(ItemId item : items){
             System.out.println("testNonGenericListImplementation : "+item);
