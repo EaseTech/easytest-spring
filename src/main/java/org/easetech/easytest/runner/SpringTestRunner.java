@@ -1,30 +1,58 @@
+/*
+ * Copyright 2013 anuj.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
 
 package org.easetech.easytest.runner;
 
+import org.easetech.easytest.annotation.Param;
+
 import java.lang.reflect.Field;
+import java.lang.reflect.InvocationTargetException;
 import java.util.ArrayList;
+import java.util.Date;
+import java.util.HashMap;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import org.easetech.easytest.annotation.Converters;
 import org.easetech.easytest.annotation.DataLoader;
 import org.easetech.easytest.annotation.Intercept;
-import org.easetech.easytest.annotation.Param;
+import org.easetech.easytest.annotation.Parallel;
+import org.easetech.easytest.converter.Converter;
+import org.easetech.easytest.converter.ConverterManager;
+import org.easetech.easytest.exceptions.ParamAssertionError;
 import org.easetech.easytest.interceptor.InternalSpringInterceptor;
 import org.easetech.easytest.interceptor.MethodIntercepter;
 import org.easetech.easytest.loader.DataConverter;
 import org.easetech.easytest.loader.DataLoaderUtil;
 import org.easetech.easytest.reports.data.ReportDataContainer;
 import org.easetech.easytest.reports.data.TestResultBean;
+import org.easetech.easytest.strategy.SchedulerStrategy;
 import org.easetech.easytest.util.DataContext;
 import org.easetech.easytest.util.RunAftersWithOutputData;
 import org.easetech.easytest.util.TestInfo;
+import org.junit.After;
 import org.junit.AfterClass;
 import org.junit.Assert;
+import org.junit.Before;
 import org.junit.Test;
-import org.junit.runners.BlockJUnit4ClassRunner;
-import org.junit.runners.Suite;
+import org.junit.runner.Description;
+import org.junit.runner.manipulation.Filter;
+import org.junit.runner.manipulation.NoTestsRemainException;
 import org.junit.runners.model.FrameworkMethod;
 import org.junit.runners.model.InitializationError;
-import org.junit.runners.model.MultipleFailureException;
 import org.junit.runners.model.Statement;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -33,347 +61,477 @@ import org.springframework.aop.framework.ProxyFactory;
 import org.springframework.test.context.junit4.SpringJUnit4ClassRunner;
 
 /**
- * A Spring based implementation of {@link Suite} that encapsulates the {@link EasyTestRunner} in order to provide users
- * with clear indication of which test method is run and what is the input test data that the method is run with. For
- * example, when a user runs the test method with name : <B><I>getTestData</I></B> with the following test data:
- * <ul>
- * <li><B>"libraryId=1 and itemId=2"</B></li>
- * <li><B>"libraryId=2456 and itemId=789"</B></li><br>
+ * A {@link SpringJUnit4ClassRunner} Runner extension that adds support of input parameters as part of the {@link Test}
+ * annotation. This {@link SpringJUnit4ClassRunner} extension is modified for providing convenient Data Driven Testing
+ * support to its users. This Runner is capable of generating new instances of {@link FrameworkMethod} based on the test
+ * data for a given method. For eg. If there is a method "testMethod(String testData)" that has three sets of test data
+ * : [{"testData1"},{"testData2"},{"testData3"}], then this runner will generate three {@link FrameworkMethod} instances
+ * with the method names :<br>
+ * testMethod{testData1}<br>
+ * testMethod{testData2}<br>
+ * and<br>
+ * testMethod{testData3}<br>
  * <br>
  * 
- * then, {@link SpringTestRunner}, will provide the details of the executing test method in the JUnit supported IDEs
- * like this:
+ * <br>
+ * <B> A user can specify the test data at the class level, using the {@link DataLoader} annotation and override it at
+ * the method level. The Runner will take care of executing the test method with the right test data.</B><br>
+ * This is extremely beneficial in cases, where the user just wants to load the data once and then reuse it for all the
+ * test methods. If the user wants, then he can always override the test data at the method level by specifying the
+ * {@link DataLoader} annotation at the method level. <br>
+ * <br>
+ * In addition, this runner also introduces a new way for the user to specify the test data using {@link DataLoader}
+ * annotation.
  * 
- * <ul>
- * <li><B><I>getTestData{libraryId=1 ,itemId=2}</I></B></li>
- * <li><B><I>getTestData{libraryId=2456 ,itemId=789}</I></B></li></br></br>
- * 
- * This gives user the clear picture of which test was run with which input test data.
- * 
- * For details on the actual Runner implementation, see {@link EasyTestRunner}
+ * <br>
+ * <br>
+ * There is also a {@link Param} annotation to handle boiler plate tasks on behalf of the user as well as supports
+ * additional functionality that eases the life of the user. For eg. it supports Java PropertyEditors to automatically
+ * convert a String to the specified Object. It also supports passing a Map to the test method that contains all the
+ * available test data key / value pairs for easy consumption by the user. It also supports user defined custom Objects
+ * as parameters.<br>
+ * <br>
  * 
  * @author Anuj Kumar
- * 
- * 
  */
-public class SpringTestRunner extends BaseSuite {
+public class SpringTestRunner extends SpringJUnit4ClassRunner {
 
+    /**
+     * An instance of {@link Map} that contains the data to be written to the File
+     */
+    private Map<String, List<Map<String, Object>>> writableData = new HashMap<String, List<Map<String, Object>>>();
+
+    /**
+     * The report container which holds all the reporting data
+     */
+    private final ReportDataContainer testReportContainer;
 
     /**
      * An instance of logger associated with the test framework.
      */
-    protected static final Logger PARAM_LOG = LoggerFactory.getLogger(SpringTestRunner.class);
-    
+    protected static final Logger LOG = LoggerFactory.getLogger(OldSpringTestRunner.class);
+
+    /**
+     * Convenient class member to get the list of {@link FrameworkMethod} that this runner will execute.
+     */
+    private final List<FrameworkMethod> frameworkMethods;
 
     /**
      * 
-     * Construct a new {@link SpringTestRunner}. During construction, we will load the test data, and then we will
-     * create a list of {@link EasyTestRunner}. each instance of {@link DataDrivenTestRunner} in the list will
-     * correspond to a single method in the Test Class under test.<br>
-     * The algorithm is as follows:<br>
-     * <ul>
-     * <li>STEP 1: Load the test data. This will also do the check whether there exists a {@link DataLoader} annotation
-     * at the class level</li>
-     * <li>Iterate over each method.<br>
-     * For each method:
-     * <ol>
-     * <li>If method has {@link DataLoader} annotation, it means that there is test data associated with the test
-     * method.<br>
-     * In such a case add the method to the methodsWithData List.
-     * <li>If method does not have a {@link DataLoader} annotation, then:
-     * <ol>
-     * <li>Check if there already exists data for the method. This is possible as the data could have been loaded at the
-     * class level.<br>
-     * <li>If the data for the given method exists, add the method to the methodsWithData List.
-     * <li>If the data does not exists for the given test method, put it aside in a list of unused methods,
-     * </ol>
-     * </ol>
-     * Iteration over each method ends.<br>
-     * 
-     * Finally create an instance of {@link EasyTestRunner} and make it use all the different types of methods we
-     * identified.<br>
-     * We need to identify methods with data and methods with no data primarily to group the test methods together as
-     * well as to efficiently create new test methods for each method that has test data associated with it. This whole
-     * process will happen for each of the test class that is part of the Suite.
-     * 
-     * @param klass the test class
-     * @throws InitializationError if an initializationError occurs
+     * Construct a new NewSpringTestRunner
+     * @param clazz
+     * @throws InitializationError
      */
-    public SpringTestRunner(Class<?> klass) throws InitializationError {
-        super(klass);
-        runners.add(new EasyTestRunner(klass));
+    public SpringTestRunner(Class<?> clazz) throws InitializationError {
+        super(clazz);
+        Class<?> testClass = getTestClass().getJavaClass();
+        setSchedulingStrategy(testClass);
+        loadBeanConfiguration(testClass);
+        loadClassLevelData(testClass);
+        registerConverter(testClass.getAnnotation(org.easetech.easytest.annotation.Converters.class));
+
+        try {
+            // initialize report container class
+            // TODO add condition whether reports must be switched on or off
+            testReportContainer = new ReportDataContainer(getTestClass().getJavaClass());
+            frameworkMethods = computeMethodsForTest();
+
+        } catch (Exception e) {
+            LOG.error("Exception occured while instantiating the EasyTestRunner. Exception is : ", e);
+            throw new RuntimeException(e);
+        }
+
     }
 
+    /**
+     * Overridden the compute test method to make it save the method list as class instance, so that the method does not
+     * run multiple times. Also, this method now is responsible for creating multiple {@link FrameworkMethod} instances
+     * for a given method with multiple test data. So, if a given test method needs to run three times with three set of
+     * input test data, then this method will actually create three instances of {@link FrameworkMethod}. In order to
+     * allow the user to override the default name, {@link FrameworkMethod} is extended with {@link EasyFrameworkMethod}
+     * and {@link EasyFrameworkMethod#setName(String)} method introduced.
+     * 
+     * @return list of {@link FrameworkMethod}
+     */
+
+    protected List<FrameworkMethod> computeMethodsForTest() {
+
+        List<FrameworkMethod> finalList = new ArrayList<FrameworkMethod>();
+        // Iterator<FrameworkMethod> testMethodsItr = super.computeTestMethods().iterator();
+        Class<?> testClass = getTestClass().getJavaClass();
+
+        List<FrameworkMethod> availableMethods = getTestClass().getAnnotatedMethods(Test.class);
+        List<FrameworkMethod> methodsWithNoData = new ArrayList<FrameworkMethod>();
+        List<FrameworkMethod> methodsWithData = new ArrayList<FrameworkMethod>();
+
+        for (FrameworkMethod method : availableMethods) {
+            // Try loading the data if any at the method level
+            if (method.getAnnotation(DataLoader.class) != null) {
+                DataLoaderUtil.loadData(null, method, getTestClass(), writableData);
+                methodsWithData.add(method);
+            } else {
+                // Method does not have its own dataloader annotation
+                // Does method need input data ??
+                if (method.getMethod().getParameterTypes().length == 0) {
+                    methodsWithNoData.add(method);
+                } else {
+                    // Does method have data already loaded?
+                    boolean methodDataLoaded = DataLoaderUtil.isMethodDataLoaded(DataConverter
+                        .getFullyQualifiedTestName(method.getName(), testClass));
+                    if (methodDataLoaded) {
+                        methodsWithData.add(method);
+                    } else {
+                        methodsWithNoData.add(method);
+                    }
+                }
+            }
+            // Next Try registering the converters, if any at the method level
+            registerConverter(method.getAnnotation(Converters.class));
+
+        }
+
+        for (FrameworkMethod methodWithData : methodsWithData) {
+            String superMethodName = DataConverter.getFullyQualifiedTestName(methodWithData.getName(), testClass);
+            for (FrameworkMethod method : availableMethods) {
+                if (superMethodName.equals(DataConverter.getFullyQualifiedTestName(method.getName(), testClass))) {
+                    // Load the data,if any, at the method level
+                    List<Map<String, Object>> methodData = null;
+                    if (DataContext.getData() != null) {
+                        methodData = DataContext.getData().get(superMethodName);
+                    }
+                    if (methodData == null) {
+                        Assert.fail("Method with name : " + superMethodName
+                            + " expects some input test data. But there doesnt seem to be any test "
+                            + "data for the given method. Please check the Test Data file for the method data. "
+                            + "Possible cause could be that the data did not get loaded at all from the file "
+                            + "or a spelling mismatch in the method name. Check logs for more details.");
+                    }
+                    for (Map<String, Object> testData : methodData) {
+                        TestResultBean testResultBean = new TestResultBean(methodWithData.getMethod().getName(),
+                            new Date());
+                        testReportContainer.addTestResult(testResultBean);
+                        // Create a new FrameworkMethod for each set of test data
+                        EasyFrameworkMethod easyMethod = new EasyFrameworkMethod(method.getMethod(), testData,
+                            testResultBean);
+                        easyMethod.setName(method.getName().concat(testData.toString()));
+                        finalList.add(easyMethod);
+                    }
+
+                    // Since the runner only ever handles a single method, we break out of the loop as soon as we
+                    // have
+                    // found our method.
+                    break;
+                }
+            }
+        }
+        for (FrameworkMethod fMethod : methodsWithNoData) {
+            TestResultBean testResultBean = new TestResultBean(fMethod.getMethod().getName(), new Date());
+            testReportContainer.addTestResult(testResultBean);
+            EasyFrameworkMethod easyMethod = new EasyFrameworkMethod(fMethod.getMethod(), null, testResultBean);
+            finalList.add(easyMethod);
+        }
+        if (finalList.isEmpty()) {
+            Assert.fail("No method exists for the Test Runner");
+        }
+        return finalList;
+    }
 
     /**
-     * A {@link BlockJUnit4ClassRunner} Runner implementation that adds support of input parameters as part of the
-     * {@link Test} annotation. This {@link BlockJUnit4ClassRunner} extension is modified for providing convenient Data
-     * Driven Testing support to its users. This Runner is capable of generating new instances of
-     * {@link FrameworkMethod} based on the test data for a given method. For eg. If there is a method
-     * "testMethod(String testData)" that has three sets of test data : [{"testData1"},{"testData2"},{"testData3"}],
-     * then this runner will generate three {@link FrameworkMethod} instances with the method names :<br>
-     * testMethod{testData1}<br>
-     * testMethod{testData2}<br>
-     * and<br>
-     * testMethod{testData3}<br>
-     * <br>
-     * 
-     * <br>
-     * <B> A user can specify the test data at the class level, using the {@link DataLoader} annotation and override it
-     * at the method level. The Runner will take care of executing the test method with the right test data.</B><br>
-     * This is extremely beneficial in cases, where the user just wants to load the data once and then reuse it for all
-     * the test methods. If the user wants, then he can always override the test data at the method level by specifying
-     * the {@link DataLoader} annotation at the method level. <br>
-     * <br>
-     * In addition, this runner also introduces a new way for the user to specify the test data using {@link DataLoader}
-     * annotation.
-     * 
-     * <br>
-     * <br>
-     * There is also a {@link Param} annotation to handle boiler plate tasks on behalf of the user as well as supports
-     * additional functionality that eases the life of the user. For eg. it supports Java PropertyEditors to
-     * automatically convert a String to the specified Object. It also supports passing a Map to the test method that
-     * contains all the available test data key / value pairs for easy consumption by the user. It also supports user
-     * defined custom Objects as parameters.<br>
-     * <br>
-     * 
-     * @author Anuj Kumar
+     * Set whether the tests should be run in parallel or serial.
      */
-    private class EasyTestRunner extends SpringJUnit4ClassRunner {
-
-        /**
-         * Convenient class member to get the list of {@link FrameworkMethod} that this runner will execute.
-         */
-        List<FrameworkMethod> frameworkMethods;
-        
-
-        /**
-         * The report container which holds all the reporting data
-         */
-        private ReportDataContainer testReportContainer = null;
-
-        /**
-         * The actual instance of the test class. This is extremely handy in cases where we want to reflectively set
-         * instance fields on a test class.
-         */
-        Object testInstance;
-        
-        /**
-         * An instance that contains the result for a single test execution
-         */
-        TestResultBean testResult;
-
-        /**
-         * 
-         * Construct a new DataDrivenTestRunner
-         * 
-         * @param klass the test class whose test methods needs to be executed
-         * @throws InitializationError if any error occurs
-         */
-        public EasyTestRunner(Class<?> klass) throws InitializationError {
-            super(klass);
-            try {
-                testReportContainer = new ReportDataContainer(getTestClass().getJavaClass());
-                testInstance = getTestClass().getOnlyConstructor().newInstance();
-                getTestContextManager().prepareTestInstance(testInstance);
-                TestConfigUtil.loadTestConfigurations(getTestClass().getJavaClass(), testInstance);
-                instrumentClass(getTestClass().getJavaClass());
-
-            } catch (Exception e) {
-                Assert.fail("Test failed while trying to instrument fileds in the class : "
-                    + getTestClass().getJavaClass() + " Exception is : " + e);
-            }
+    protected void setSchedulingStrategy(Class<?> testClass) {
+        if (testClass.getAnnotation(Parallel.class) != null) {
+            super.setScheduler(SchedulerStrategy.getScheduler(testClass));
         }
+    }
 
-        /**
-         * Instrument the class's field that are marked with {@link Intercept} annotation
-         * 
-         * @param testClass the class under test
-         * @throws IllegalArgumentException if an exception occurred
-         * @throws IllegalAccessException if an exception occurred
-         * @throws AopConfigException if an exception occurred
-         * @throws InstantiationException if an exception occurred
-         */
-        protected void instrumentClass(Class<?> testClass) throws IllegalArgumentException, IllegalAccessException,
-            AopConfigException, InstantiationException {
-            Field[] fields = testClass.getDeclaredFields();
-            try {
-                for (Field field : fields) {
-                    field.setAccessible(true);
-                    Intercept interceptor = field.getAnnotation(Intercept.class);
-                    if (interceptor != null) {
-                        Class<? extends MethodIntercepter> interceptorClass = interceptor.interceptor();
-                        // This is the field we want to enhance
-                        Object fieldInstance = field.get(testInstance);
-                        ProxyFactory factory = new ProxyFactory();
-                        factory.setTarget(fieldInstance);
-                        InternalSpringInterceptor internalIntercepter = new InternalSpringInterceptor();
-                        internalIntercepter.setUserIntercepter(interceptorClass.newInstance());
-                        factory.addAdvice(internalIntercepter);
-                        Object proxy = factory.getProxy();
-                        field.set(testInstance, proxy);
-                    }
-                }
+    /**
+     * @see TestConfigUtil#loadTestBeanConfig(Class)
+     */
+    protected void loadBeanConfiguration(Class<?> testClass) {
+        TestConfigUtil.loadTestBeanConfig(testClass);
+    }
 
-            } catch (Exception e) {
-                throw new RuntimeException(e);
-            }
+    /**
+     * Load any class level test data
+     * 
+     * @see DataLoaderUtil#loadData(Class, FrameworkMethod, org.junit.runners.model.TestClass, Map)
+     * @param klass
+     */
+    protected void loadClassLevelData(Class<?> testClass) {
+        DataLoaderUtil.loadData(testClass, null, getTestClass(), writableData);
+    }
 
-        }
-
-        /**
-         * Try to collect any initialization errors, if any.
-         * 
-         * @param errors
-         */
-
-        protected void collectInitializationErrors(List<Throwable> errors) {
-            super.collectInitializationErrors(errors);
-            // validateDataPointFields(errors);
-        }
-
-        /**
-         * Override the name of the test. In case of EasyTest, it will be the name of the test method concatenated with
-         * the input test data that the method will run with.
-         * 
-         * @param method the {@link FrameworkMethod}
-         * @return an overridden test method Name
-         */
-
-        protected String testName(final FrameworkMethod method) {
-            return String.format("%s", method.getName());
-        }
-
-        /**
-         * Overridden the compute test method to make it save the method list as class instance, so that the method does
-         * not run multiple times. Also, this method now is responsible for creating multiple {@link FrameworkMethod}
-         * instances for a given method with multiple test data. So, if a given test method needs to run three times
-         * with three set of input test data, then this method will actually create three instances of
-         * {@link FrameworkMethod}. In order to allow the user to override the default name, {@link FrameworkMethod} is
-         * extended with {@link EasyFrameworkMethod} and {@link EasyFrameworkMethod#setName(String)} method introduced.
-         * 
-         * @return list of {@link FrameworkMethod}
-         */
-
-        protected List<FrameworkMethod> computeTestMethods() {
-            if (frameworkMethods != null && !frameworkMethods.isEmpty()) {
-                return frameworkMethods;
-            }
-            List<FrameworkMethod> finalList = new ArrayList<FrameworkMethod>();
-            // Iterator<FrameworkMethod> testMethodsItr = super.computeTestMethods().iterator();
-            Class<?> testClass = getTestClass().getJavaClass();
-            for (FrameworkMethod methodWithData : methodsWithData) {
-                String superMethodName = DataConverter.getFullyQualifiedTestName(methodWithData.getName(), testClass);
-                for (FrameworkMethod method : super.computeTestMethods()) {
-
-                    if (superMethodName.equals(DataConverter.getFullyQualifiedTestName(method.getName(), testClass))) {
-                        // Load the data,if any, at the method level
-                        DataLoaderUtil.loadData(null, method, getTestClass(), writableData);
-                        List<Map<String, Object>> methodData = DataContext.getData().get(superMethodName);
-                        if (methodData == null) {
-                            Assert.fail("Method with name : " + superMethodName
-                                + " expects some input test data. But there doesnt seem to be any test "
-                                + "data for the given method. Please check the Test Data file for the method data. "
-                                + "Possible cause could be a spelling mismatch.");
-                        }
-                        for (Map<String, Object> testData : methodData) {
-                            // Create a new FrameworkMethod for each set of test data
-                            EasyFrameworkMethod easyMethod = new EasyFrameworkMethod(method.getMethod());
-                            easyMethod.setName(method.getName().concat(testData.toString()));
-                            finalList.add(easyMethod);
-                        }
-                        // Since the runner only ever handles a single method, we break out of the loop as soon as we
-                        // have
-                        // found our method.
-                        break;
-                    }
+    /**
+     * Method responsible for registering the converters with the EasyTest framework
+     * 
+     * @param converter the annotation {@link Converters}
+     */
+    @SuppressWarnings("rawtypes")
+    public void registerConverter(Converters converter) {
+        if (converter != null) {
+            Class<? extends Converter>[] convertersToRegister = converter.value();
+            if (convertersToRegister != null && convertersToRegister.length != 0) {
+                for (Class<? extends Converter> value : convertersToRegister) {
+                    ConverterManager.registerConverter(value);
                 }
             }
-            finalList.addAll(methodsWithNoData);
-            if (finalList.isEmpty()) {
-                Assert.fail("No method exists for the Test Runner");
+        }
+
+    }
+
+    /**
+     * Get the instance of the class under test
+     * 
+     * @return the instance of class under test
+     * @throws InstantiationException
+     * @throws IllegalAccessException
+     * @throws IllegalArgumentException
+     * @throws InvocationTargetException
+     */
+    protected Object getTestInstance() throws InstantiationException, IllegalAccessException, IllegalArgumentException,
+        InvocationTargetException {
+        return getTestClass().getOnlyConstructor().newInstance();
+    }
+
+    /**
+     * Compute any test methods
+     * 
+     * @return a list of {@link FrameworkMethod}s
+     */
+    protected List<FrameworkMethod> computeTestMethods() {
+        return frameworkMethods;
+    }
+
+    /**
+     * Override the filter method from {@link ParentRunner} so that individual tests can be run using EasyTest
+     * 
+     * @param filter
+     * @throws NoTestsRemainException
+     */
+    public void filter(Filter filter) throws NoTestsRemainException {
+
+        for (Iterator<FrameworkMethod> iter = frameworkMethods.iterator(); iter.hasNext();) {
+            FrameworkMethod each = iter.next();
+            if (shouldRun(filter, each))
+                try {
+                    filter.apply(each);
+                } catch (NoTestsRemainException e) {
+                    iter.remove();
+                }
+            else
+                iter.remove();
+        }
+        if (frameworkMethods.isEmpty()) {
+            throw new NoTestsRemainException();
+        }
+    }
+
+    private boolean shouldRun(Filter filter, FrameworkMethod each) {
+        return filter.shouldRun(describeFiltarableChild(each));
+    }
+
+    private Description describeFiltarableChild(FrameworkMethod each) {
+        return Description.createTestDescription(getTestClass().getJavaClass(), each.getMethod().getName(),
+            each.getAnnotations());
+    }
+
+    /**
+     * Instrument the class's field that are marked with {@link Intercept} annotation
+     * 
+     * @param testClass the class under test
+     * @throws IllegalArgumentException if an exception occurred
+     * @throws IllegalAccessException if an exception occurred
+     * @throws AopConfigException if an exception occurred
+     * @throws InstantiationException if an exception occurred
+     */
+    protected void instrumentClass(Class<?> testClass, Object testInstance) throws IllegalArgumentException,
+        IllegalAccessException, AopConfigException, InstantiationException {
+        Field[] fields = testClass.getDeclaredFields();
+        try {
+            for (Field field : fields) {
+                field.setAccessible(true);
+                Intercept interceptor = field.getAnnotation(Intercept.class);
+                if (interceptor != null) {
+                    Class<? extends MethodIntercepter> interceptorClass = interceptor.interceptor();
+                    // This is the field we want to enhance
+                    Object fieldInstance = field.get(testInstance);
+                    ProxyFactory factory = new ProxyFactory();
+                    factory.setTarget(fieldInstance);
+                    InternalSpringInterceptor internalIntercepter = new InternalSpringInterceptor();
+                    internalIntercepter.setUserIntercepter(interceptorClass.newInstance());
+                    factory.addAdvice(internalIntercepter);
+                    Object proxy = factory.getProxy();
+                    field.set(testInstance, proxy);
+                }
             }
-            frameworkMethods = finalList;
-            return finalList;
+
+        } catch (Exception e) {
+            throw new RuntimeException(e);
         }
 
-        /**
-         * Validate that there could ever be only one constructor.
-         * 
-         * @param errors list of any errors while validating the Constructor
-         */
+    }
 
-        protected void validateConstructor(List<Throwable> errors) {
-            validateOnlyOneConstructor(errors);
-        }
+    /**
+     * Override the name of the test. In case of EasyTest, it will be the name of the test method concatenated with the
+     * input test data that the method will run with.
+     * 
+     * @param method the {@link FrameworkMethod}
+     * @return an overridden test method Name
+     */
 
-        /**
-         * Validate the test methods.
-         * 
-         * @param errors list of any errors while validating test method
-         */
+    protected String testName(final FrameworkMethod method) {
+        return String.format("%s", method.getName());
+    }
 
-        protected void validateTestMethods(List<Throwable> errors) {
-            // Do Nothing as we now support public non void arg test methods
-        }
+    /**
+     * Validate that there could ever be only one constructor.
+     * 
+     * @param errors list of any errors while validating the Constructor
+     */
 
-        protected Object createTest() throws Exception {
-            return null;
+    protected void validateConstructor(List<Throwable> errors) {
+        validateOnlyOneConstructor(errors);
+    }
 
-        }
+    /**
+     * Adds to {@code errors} for each method annotated with {@code @Test}, {@code @Before}, or {@code @After} that is
+     * not a public, void instance method with no arguments.
+     * 
+     * @deprecated unused API, will go away in future version
+     */
+    @Deprecated
+    protected void validateInstanceMethods(List<Throwable> errors) {
+        validatePublicVoidNoArgMethods(After.class, false, errors);
+        validatePublicVoidNoArgMethods(Before.class, false, errors);
+        validateTestMethods(errors);
 
-        /**
-         * Override the methodBlock to return custom {@link ParamAnchor}
-         * 
-         * @param method the Framework Method
-         * @return a compiled {@link Statement} object to be evaluated
-         */
+        if (getTestClass().getAnnotatedMethods(Test.class).size() == 0)
+            errors.add(new Exception("No runnable methods"));
+    }
 
-        public Statement methodBlock(final FrameworkMethod method) {
-            return new InternalParameterizedStatement(method, testResult, testReportContainer, writableData, getTestClass(), testInstance);
-        }
+    /**
+     * Validate the test methods.
+     * 
+     * @param errors list of any errors while validating test method
+     */
 
-        /**
-         * Returns a {@link Statement}: run all non-overridden {@code @AfterClass} methods on this class and
-         * superclasses before executing {@code statement}; all AfterClass methods are always executed: exceptions
-         * thrown by previous steps are combined, if necessary, with exceptions from AfterClass methods into a
-         * {@link MultipleFailureException}.
-         * 
-         * This method is also responsible for writing the data to the output file in case the user is returning test
-         * data from the test method. This method will make sure that the data is written to the output file once after
-         * the Runner has completed and not for every instance of the test method.
-         */
+    protected void validateTestMethods(List<Throwable> errors) {
+        // Do Nothing as we now support public non void arg test methods
+    }
 
-        protected Statement withAfterClasses(Statement statement) {
-            List<FrameworkMethod> afters = getTestClass().getAnnotatedMethods(AfterClass.class);
-            List<FrameworkMethod> testMethods = getTestClass().getAnnotatedMethods(Test.class);
-            List<TestInfo> testInfoList = new ArrayList<TestInfo>();
+    protected Statement methodBlock(FrameworkMethod method) {
+        return withTestResult((EasyFrameworkMethod) method, super.methodBlock(method));
+    }
+
+    protected Statement withTestResult(final EasyFrameworkMethod method, final Statement statement) {
+        return new Statement() {
+
+            @Override
+            public void evaluate() throws Throwable {
+                TestResultBean testResult = method.getTestResult();
+                try {
+                    statement.evaluate();
+                    testResult.setPassed(Boolean.TRUE);
+                } catch (Throwable e) {
+
+                    if (e instanceof AssertionError) { // Assertion error
+                        testResult.setPassed(Boolean.FALSE);
+                        testResult.setResult(e.getMessage());
+                        throw new ParamAssertionError(e, method.getName());
+
+                    } else { // Exception
+                        testResult.setException(Boolean.TRUE);
+                        testResult.setExceptionResult(e.toString());
+                        throw e;
+
+                    }
+
+                }
+
+            }
+        };
+    }
+
+    /**
+     * @see TestConfigUtil#loadTestConfigurations(Class, Object)
+     */
+    protected void loadTestConfigurations(Object testInstance) {
+        TestConfigUtil.loadTestConfigurations(getTestClass().getJavaClass(), testInstance);
+    }
+
+    /**
+     * @see TestConfigUtil#loadResourceProperties
+     */
+    protected void loadResourceProperties(Object testInstance) {
+        TestConfigUtil.loadResourceProperties(getTestClass().getJavaClass(), testInstance);
+    }
+
+    /**
+     * Returns a new fixture for running a test. Default implementation executes the test class's no-argument
+     * constructor (validation should have ensured one exists).
+     */
+    protected Object createTest() throws Exception {
+        Object testInstance = getTestClass().getOnlyConstructor().newInstance();
+
+        loadTestConfigurations(testInstance);
+        loadResourceProperties(testInstance);
+        getTestContextManager().prepareTestInstance(testInstance);
+        instrumentClass(getTestClass().getJavaClass(), testInstance);
+
+        return testInstance;
+
+    }
+
+    /**
+     * Returns a {@link Statement} that invokes {@code method} on {@code test}
+     */
+    protected Statement methodInvoker(FrameworkMethod method, Object testInstance) {
+        return new InternalParameterizedStatement((EasyFrameworkMethod) method, getTestClass(), testInstance);
+    }
+
+    /**
+     * Returns a {@link Statement}: run all non-overridden {@code @AfterClass} methods on this class and superclasses
+     * before executing {@code statement}; all AfterClass methods are always executed: exceptions thrown by previous
+     * steps are combined, if necessary, with exceptions from AfterClass methods into a {@link MultipleFailureException}
+     * .
+     * 
+     * This method is also responsible for writing the data to the output file in case the user is returning test data
+     * from the test method. This method will make sure that the data is written to the output file once after the
+     * Runner has completed and not for every instance of the test method.
+     */
+
+    protected Statement withAfterClasses(Statement statement) {
+        List<FrameworkMethod> afters = getTestClass().getAnnotatedMethods(AfterClass.class);
+        List<FrameworkMethod> testMethods = getTestClass().getAnnotatedMethods(Test.class);
+        List<TestInfo> testInfoList = new ArrayList<TestInfo>();
+
+        // populateTestInfo(testInfo);
+        // THere would always be atleast one method associated with the Runner, else validation would fail.
+        for (FrameworkMethod method : testMethods) {
             TestInfo testInfo = null;
-            // populateTestInfo(testInfo);
-            // THere would always be atleast one method associated with the Runner, else validation would fail.
-            for (FrameworkMethod method : testMethods) {
 
-                // Only if the return type of the Method is not VOID, we try to determine the right loader and data
-                // files.
-                DataLoader loaderAnnotation = method.getAnnotation(DataLoader.class);
+            // Only if the return type of the Method is not VOID, we try to determine the right loader and data
+            // files.
+            DataLoader loaderAnnotation = method.getAnnotation(DataLoader.class);
+            if (loaderAnnotation != null) {
+                testInfo = DataLoaderUtil.determineLoader(loaderAnnotation, getTestClass());
+
+            } else {
+                loaderAnnotation = getTestClass().getJavaClass().getAnnotation(DataLoader.class);
                 if (loaderAnnotation != null) {
                     testInfo = DataLoaderUtil.determineLoader(loaderAnnotation, getTestClass());
-
-                } else {
-                    loaderAnnotation = getTestClass().getJavaClass().getAnnotation(DataLoader.class);
-                    if (loaderAnnotation != null) {
-                        testInfo = DataLoaderUtil.determineLoader(loaderAnnotation, getTestClass());
-                    }
                 }
-                if (testInfo != null) {
-                    testInfo.setMethodName(method.getName());
-                    testInfoList.add(testInfo);
-                }
-
             }
-            return new RunAftersWithOutputData(statement, afters, null, testInfoList, writableData, testReportContainer);
-        }
+            if (testInfo != null) {
+                testInfo.setMethodName(method.getName());
+                testInfoList.add(testInfo);
+            }
 
+        }
+        RunAftersWithOutputData runAftersWithOutputData = new RunAftersWithOutputData(statement, afters, null,
+            testInfoList, writableData, testReportContainer);
+        return runAftersWithOutputData;
     }
 
 }
