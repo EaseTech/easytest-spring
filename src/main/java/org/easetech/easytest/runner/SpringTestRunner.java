@@ -16,31 +16,33 @@
 
 package org.easetech.easytest.runner;
 
-import org.easetech.easytest.annotation.Param;
-
 import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Proxy;
 import java.util.ArrayList;
-import java.util.Date;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import net.sf.cglib.proxy.Enhancer;
+import net.sf.cglib.proxy.Factory;
 import org.easetech.easytest.annotation.Converters;
 import org.easetech.easytest.annotation.DataLoader;
+import org.easetech.easytest.annotation.Duration;
 import org.easetech.easytest.annotation.Intercept;
-import org.easetech.easytest.annotation.Parallel;
+import org.easetech.easytest.annotation.Param;
 import org.easetech.easytest.converter.Converter;
 import org.easetech.easytest.converter.ConverterManager;
 import org.easetech.easytest.exceptions.ParamAssertionError;
+import org.easetech.easytest.interceptor.Empty;
+import org.easetech.easytest.interceptor.InternalInterceptor;
+import org.easetech.easytest.interceptor.InternalInvocationhandler;
 import org.easetech.easytest.interceptor.InternalSpringInterceptor;
 import org.easetech.easytest.interceptor.MethodIntercepter;
-import org.easetech.easytest.loader.DataConverter;
 import org.easetech.easytest.loader.DataLoaderUtil;
+import org.easetech.easytest.reports.data.DurationObserver;
 import org.easetech.easytest.reports.data.ReportDataContainer;
 import org.easetech.easytest.reports.data.TestResultBean;
-import org.easetech.easytest.strategy.SchedulerStrategy;
-import org.easetech.easytest.util.DataContext;
 import org.easetech.easytest.util.RunAftersWithOutputData;
 import org.easetech.easytest.util.TestInfo;
 import org.junit.After;
@@ -51,8 +53,10 @@ import org.junit.Test;
 import org.junit.runner.Description;
 import org.junit.runner.manipulation.Filter;
 import org.junit.runner.manipulation.NoTestsRemainException;
+import org.junit.runners.ParentRunner;
 import org.junit.runners.model.FrameworkMethod;
 import org.junit.runners.model.InitializationError;
+import org.junit.runners.model.MultipleFailureException;
 import org.junit.runners.model.Statement;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -109,7 +113,7 @@ public class SpringTestRunner extends SpringJUnit4ClassRunner {
     /**
      * An instance of logger associated with the test framework.
      */
-    protected static final Logger LOG = LoggerFactory.getLogger(OldSpringTestRunner.class);
+    protected static final Logger LOG = LoggerFactory.getLogger(SpringTestRunner.class);
 
     /**
      * Convenient class member to get the list of {@link FrameworkMethod} that this runner will execute.
@@ -117,29 +121,44 @@ public class SpringTestRunner extends SpringJUnit4ClassRunner {
     private final List<FrameworkMethod> frameworkMethods;
 
     /**
+     * An observer that is responsible for capturing the Duration of a methd under test
+     */
+    private final DurationObserver durationObserver = new DurationObserver();
+
+    /**
      * 
      * Construct a new NewSpringTestRunner
+     * 
      * @param clazz
      * @throws InitializationError
      */
     public SpringTestRunner(Class<?> clazz) throws InitializationError {
         super(clazz);
-        Class<?> testClass = getTestClass().getJavaClass();
-        setSchedulingStrategy(testClass);
-        loadBeanConfiguration(testClass);
-        loadClassLevelData(testClass);
-        registerConverter(testClass.getAnnotation(org.easetech.easytest.annotation.Converters.class));
+        setSchedulingStrategy();
+        RunnerUtil.loadBeanConfiguration(getTestClass().getJavaClass());
+        RunnerUtil.loadClassLevelData(clazz, getTestClass(), writableData);
 
         try {
             // initialize report container class
             // TODO add condition whether reports must be switched on or off
             testReportContainer = new ReportDataContainer(getTestClass().getJavaClass());
+            testReportContainer.setDurationList(durationObserver.getDurationList());
             frameworkMethods = computeMethodsForTest();
 
         } catch (Exception e) {
-            LOG.error("Exception occured while instantiating the EasyTestRunner. Exception is : ", e);
+            LOG.error("Exception occured while instantiating the SpringTestRunner. Exception is : ", e);
             throw new RuntimeException(e);
         }
+
+    }
+    
+
+    /**
+     * Set whether the tests should be run in parallel or serial.
+     */
+    protected void setSchedulingStrategy() {
+        Class<?> testClass = getTestClass().getJavaClass();
+        super.setScheduler(RunnerUtil.getScheduler(testClass));
 
     }
 
@@ -156,129 +175,13 @@ public class SpringTestRunner extends SpringJUnit4ClassRunner {
 
     protected List<FrameworkMethod> computeMethodsForTest() {
 
-        List<FrameworkMethod> finalList = new ArrayList<FrameworkMethod>();
-        // Iterator<FrameworkMethod> testMethodsItr = super.computeTestMethods().iterator();
-        Class<?> testClass = getTestClass().getJavaClass();
-
-        List<FrameworkMethod> availableMethods = getTestClass().getAnnotatedMethods(Test.class);
-        List<FrameworkMethod> methodsWithNoData = new ArrayList<FrameworkMethod>();
-        List<FrameworkMethod> methodsWithData = new ArrayList<FrameworkMethod>();
-
-        for (FrameworkMethod method : availableMethods) {
-            // Try loading the data if any at the method level
-            if (method.getAnnotation(DataLoader.class) != null) {
-                DataLoaderUtil.loadData(null, method, getTestClass(), writableData);
-                methodsWithData.add(method);
-            } else {
-                // Method does not have its own dataloader annotation
-                // Does method need input data ??
-                if (method.getMethod().getParameterTypes().length == 0) {
-                    methodsWithNoData.add(method);
-                } else {
-                    // Does method have data already loaded?
-                    boolean methodDataLoaded = DataLoaderUtil.isMethodDataLoaded(DataConverter
-                        .getFullyQualifiedTestName(method.getName(), testClass));
-                    if (methodDataLoaded) {
-                        methodsWithData.add(method);
-                    } else {
-                        methodsWithNoData.add(method);
-                    }
-                }
-            }
-            // Next Try registering the converters, if any at the method level
-            registerConverter(method.getAnnotation(Converters.class));
-
-        }
-
-        for (FrameworkMethod methodWithData : methodsWithData) {
-            String superMethodName = DataConverter.getFullyQualifiedTestName(methodWithData.getName(), testClass);
-            for (FrameworkMethod method : availableMethods) {
-                if (superMethodName.equals(DataConverter.getFullyQualifiedTestName(method.getName(), testClass))) {
-                    // Load the data,if any, at the method level
-                    List<Map<String, Object>> methodData = null;
-                    if (DataContext.getData() != null) {
-                        methodData = DataContext.getData().get(superMethodName);
-                    }
-                    if (methodData == null) {
-                        Assert.fail("Method with name : " + superMethodName
-                            + " expects some input test data. But there doesnt seem to be any test "
-                            + "data for the given method. Please check the Test Data file for the method data. "
-                            + "Possible cause could be that the data did not get loaded at all from the file "
-                            + "or a spelling mismatch in the method name. Check logs for more details.");
-                    }
-                    for (Map<String, Object> testData : methodData) {
-                        TestResultBean testResultBean = new TestResultBean(methodWithData.getMethod().getName(),
-                            new Date());
-                        testReportContainer.addTestResult(testResultBean);
-                        // Create a new FrameworkMethod for each set of test data
-                        EasyFrameworkMethod easyMethod = new EasyFrameworkMethod(method.getMethod(), testData,
-                            testResultBean);
-                        easyMethod.setName(method.getName().concat(testData.toString()));
-                        finalList.add(easyMethod);
-                    }
-
-                    // Since the runner only ever handles a single method, we break out of the loop as soon as we
-                    // have
-                    // found our method.
-                    break;
-                }
-            }
-        }
-        for (FrameworkMethod fMethod : methodsWithNoData) {
-            TestResultBean testResultBean = new TestResultBean(fMethod.getMethod().getName(), new Date());
-            testReportContainer.addTestResult(testResultBean);
-            EasyFrameworkMethod easyMethod = new EasyFrameworkMethod(fMethod.getMethod(), null, testResultBean);
-            finalList.add(easyMethod);
-        }
+        List<FrameworkMethod> finalList = RunnerUtil.testMethods(getTestClass(), testReportContainer, writableData);
         if (finalList.isEmpty()) {
             Assert.fail("No method exists for the Test Runner");
         }
         return finalList;
     }
-
-    /**
-     * Set whether the tests should be run in parallel or serial.
-     */
-    protected void setSchedulingStrategy(Class<?> testClass) {
-        if (testClass.getAnnotation(Parallel.class) != null) {
-            super.setScheduler(SchedulerStrategy.getScheduler(testClass));
-        }
-    }
-
-    /**
-     * @see TestConfigUtil#loadTestBeanConfig(Class)
-     */
-    protected void loadBeanConfiguration(Class<?> testClass) {
-        TestConfigUtil.loadTestBeanConfig(testClass);
-    }
-
-    /**
-     * Load any class level test data
-     * 
-     * @see DataLoaderUtil#loadData(Class, FrameworkMethod, org.junit.runners.model.TestClass, Map)
-     * @param klass
-     */
-    protected void loadClassLevelData(Class<?> testClass) {
-        DataLoaderUtil.loadData(testClass, null, getTestClass(), writableData);
-    }
-
-    /**
-     * Method responsible for registering the converters with the EasyTest framework
-     * 
-     * @param converter the annotation {@link Converters}
-     */
-    @SuppressWarnings("rawtypes")
-    public void registerConverter(Converters converter) {
-        if (converter != null) {
-            Class<? extends Converter>[] convertersToRegister = converter.value();
-            if (convertersToRegister != null && convertersToRegister.length != 0) {
-                for (Class<? extends Converter> value : convertersToRegister) {
-                    ConverterManager.registerConverter(value);
-                }
-            }
-        }
-
-    }
+    
 
     /**
      * Get the instance of the class under test
@@ -293,6 +196,22 @@ public class SpringTestRunner extends SpringJUnit4ClassRunner {
         InvocationTargetException {
         return getTestClass().getOnlyConstructor().newInstance();
     }
+    
+
+    /**
+     * @see TestConfigUtil#loadTestConfigurations(Class, Object)
+     */
+    protected void loadTestConfigurations(Object testInstance) {
+        TestConfigUtil.loadTestConfigurations(getTestClass().getJavaClass(), testInstance);
+    }
+
+    /**
+     * @see TestConfigUtil#loadResourceProperties
+     */
+    protected void loadResourceProperties(Object testInstance) {
+        TestConfigUtil.loadResourceProperties(getTestClass().getJavaClass(), testInstance);
+    }
+    
 
     /**
      * Compute any test methods
@@ -302,7 +221,7 @@ public class SpringTestRunner extends SpringJUnit4ClassRunner {
     protected List<FrameworkMethod> computeTestMethods() {
         return frameworkMethods;
     }
-
+    
     /**
      * Override the filter method from {@link ParentRunner} so that individual tests can be run using EasyTest
      * 
@@ -326,7 +245,7 @@ public class SpringTestRunner extends SpringJUnit4ClassRunner {
             throw new NoTestsRemainException();
         }
     }
-
+    
     private boolean shouldRun(Filter filter, FrameworkMethod each) {
         return filter.shouldRun(describeFiltarableChild(each));
     }
@@ -335,7 +254,7 @@ public class SpringTestRunner extends SpringJUnit4ClassRunner {
         return Description.createTestDescription(getTestClass().getJavaClass(), each.getMethod().getName(),
             each.getAnnotations());
     }
-
+    
     /**
      * Instrument the class's field that are marked with {@link Intercept} annotation
      * 
@@ -363,6 +282,11 @@ public class SpringTestRunner extends SpringJUnit4ClassRunner {
                     factory.addAdvice(internalIntercepter);
                     Object proxy = factory.getProxy();
                     field.set(testInstance, proxy);
+                } else {
+                    Duration duration = field.getAnnotation(Duration.class);
+                    if (duration != null) {
+                        provideProxyWrapperFor(duration.interceptor(), duration.timeInMillis(), field, testInstance);
+                    }
                 }
             }
 
@@ -371,7 +295,25 @@ public class SpringTestRunner extends SpringJUnit4ClassRunner {
         }
 
     }
+    
+    /**
+     * Method responsible for registering the converters with the EasyTest framework
+     * 
+     * @param converter the annotation {@link Converters}
+     */
+    @SuppressWarnings("rawtypes")
+    public void registerConverter(Converters converter) {
+        if (converter != null) {
+            Class<? extends Converter>[] convertersToRegister = converter.value();
+            if (convertersToRegister != null && convertersToRegister.length != 0) {
+                for (Class<? extends Converter> value : convertersToRegister) {
+                    ConverterManager.registerConverter(value);
+                }
+            }
+        }
 
+    }
+    
     /**
      * Override the name of the test. In case of EasyTest, it will be the name of the test method concatenated with the
      * input test data that the method will run with.
@@ -381,7 +323,7 @@ public class SpringTestRunner extends SpringJUnit4ClassRunner {
      */
 
     protected String testName(final FrameworkMethod method) {
-        return String.format("%s", method.getName());
+        return RunnerUtil.getTestName(getTestClass(), method);
     }
 
     /**
@@ -423,7 +365,7 @@ public class SpringTestRunner extends SpringJUnit4ClassRunner {
     protected Statement methodBlock(FrameworkMethod method) {
         return withTestResult((EasyFrameworkMethod) method, super.methodBlock(method));
     }
-
+    
     protected Statement withTestResult(final EasyFrameworkMethod method, final Statement statement) {
         return new Statement() {
 
@@ -453,19 +395,6 @@ public class SpringTestRunner extends SpringJUnit4ClassRunner {
         };
     }
 
-    /**
-     * @see TestConfigUtil#loadTestConfigurations(Class, Object)
-     */
-    protected void loadTestConfigurations(Object testInstance) {
-        TestConfigUtil.loadTestConfigurations(getTestClass().getJavaClass(), testInstance);
-    }
-
-    /**
-     * @see TestConfigUtil#loadResourceProperties
-     */
-    protected void loadResourceProperties(Object testInstance) {
-        TestConfigUtil.loadResourceProperties(getTestClass().getJavaClass(), testInstance);
-    }
 
     /**
      * Returns a new fixture for running a test. Default implementation executes the test class's no-argument
@@ -473,21 +402,126 @@ public class SpringTestRunner extends SpringJUnit4ClassRunner {
      */
     protected Object createTest() throws Exception {
         Object testInstance = getTestClass().getOnlyConstructor().newInstance();
-
         loadTestConfigurations(testInstance);
         loadResourceProperties(testInstance);
         getTestContextManager().prepareTestInstance(testInstance);
         instrumentClass(getTestClass().getJavaClass(), testInstance);
-
+        registerConverter(getTestClass().getJavaClass().getAnnotation(Converters.class));
         return testInstance;
 
     }
-
     /**
      * Returns a {@link Statement} that invokes {@code method} on {@code test}
      */
     protected Statement methodInvoker(FrameworkMethod method, Object testInstance) {
+        registerConverter(method.getAnnotation(Converters.class));
+        if (method.getAnnotation(Duration.class) != null) {
+            try {
+                handleDuration(method, testInstance);
+            } catch (IllegalArgumentException e) {
+                throw new RuntimeException(e);
+            } catch (IllegalAccessException e) {
+                throw new RuntimeException(e);
+            } catch (InstantiationException e) {
+                throw new RuntimeException(e);
+            }
+        }
         return new InternalParameterizedStatement((EasyFrameworkMethod) method, getTestClass(), testInstance);
+    }
+
+    private void handleDuration(FrameworkMethod method, Object testInstance) throws IllegalArgumentException,
+        IllegalAccessException, InstantiationException {
+        Duration duration = method.getAnnotation(Duration.class);
+        if (duration != null) {
+            if (!duration.forClass().isAssignableFrom(Empty.class)) {
+                interceptField(duration, getTestClass().getJavaClass(), testInstance);
+            } else {
+                Assert.fail("Duration annotation at the method level should have value for the 'forClass' attribute.");
+            }
+
+        }
+    }
+    
+    private void interceptField(Duration duration, Class<?> testClass, Object testInstance)
+        throws IllegalArgumentException, IllegalAccessException, InstantiationException {
+        Field[] fields = testClass.getDeclaredFields();
+        for (Field field : fields) {
+            field.setAccessible(true);
+            if (field.getType().isAssignableFrom(duration.forClass())) {
+                provideProxyWrapperFor(duration.interceptor(), duration.timeInMillis(), field, testInstance);
+
+            }
+        }
+    }
+
+    private void provideProxyWrapperFor(Class<? extends MethodIntercepter> interceptor, Long timeInMillies,
+        Field field, Object testInstance) throws IllegalArgumentException, IllegalAccessException,
+        InstantiationException {
+        Object fieldInstance = field.get(testInstance);
+        Object targetInstance = null;
+
+        Object proxiedObject = null;
+        Class<?> fieldType = field.getType();
+        Class<? extends MethodIntercepter> interceptorClass = interceptor;
+        if (fieldType.isInterface()) {
+            if (Proxy.isProxyClass(fieldInstance.getClass())) {
+                InternalInvocationhandler handler = (InternalInvocationhandler) Proxy
+                    .getInvocationHandler(fieldInstance);
+                targetInstance = handler.getTargetInstance();
+            } else {
+                targetInstance = fieldInstance;
+            }
+            proxiedObject = getJDKProxy(interceptorClass, timeInMillies, fieldType, targetInstance);
+        } else {
+            if (fieldInstance instanceof Factory) {
+                Factory cglibFactory = (Factory) fieldInstance;
+                InternalInterceptor internalInterceptor = (InternalInterceptor) cglibFactory.getCallback(0);
+                targetInstance = internalInterceptor.getTargetInstance();
+            } else {
+                targetInstance = fieldInstance;
+            }
+            proxiedObject = getCGLIBProxy(interceptorClass, timeInMillies, fieldType, targetInstance);
+
+        }
+        try {
+            if (proxiedObject != null) {
+                field.set(testInstance, proxiedObject);
+            }
+
+        } catch (Exception e) {
+            LOG.error("Failed while trying to instrument the class for Intercept annotation with exception : ", e);
+            Assert.fail("Failed while trying to instrument the class for Intercept annotation with exception : " + e);
+        }
+    }
+
+    private Object getJDKProxy(Class<? extends MethodIntercepter> interceptorClass, Long timeInMillis,
+        Class<?> fieldType, Object fieldInstance) throws InstantiationException, IllegalAccessException {
+        LOG.debug("The field of type :" + fieldType + " will be proxied using JDK dynamic proxies.");
+
+        ClassLoader classLoader = determineClassLoader(fieldType, getTestClass().getJavaClass());
+
+        Class<?>[] interfaces = { fieldType };
+        // use JDK dynamic proxy
+        InternalInvocationhandler handler = new InternalInvocationhandler();
+        handler.setUserIntercepter(interceptorClass.newInstance());
+        handler.setTargetInstance(fieldInstance);
+        handler.setExpectedRunTime(timeInMillis);
+        handler.addObserver(durationObserver);
+        return Proxy.newProxyInstance(classLoader, interfaces, handler);
+    }
+
+    private Object getCGLIBProxy(Class<? extends MethodIntercepter> interceptorClass, Long timeInMillis,
+        Class<?> fieldType, Object fieldInstance) throws InstantiationException, IllegalAccessException {
+        LOG.debug("The field of type :" + fieldType + " will be proxied using CGLIB proxies.");
+        Enhancer enhancer = new Enhancer();
+        enhancer.setSuperclass(fieldType);
+        InternalInterceptor cglibInterceptor = new InternalInterceptor();
+        cglibInterceptor.setTargetInstance(fieldInstance);
+        cglibInterceptor.setUserIntercepter(interceptorClass.newInstance());
+        cglibInterceptor.setExpectedRunTime(timeInMillis);
+        cglibInterceptor.addObserver(durationObserver);
+        enhancer.setCallback(cglibInterceptor);
+        return enhancer.create();
     }
 
     /**
@@ -532,6 +566,31 @@ public class SpringTestRunner extends SpringJUnit4ClassRunner {
         RunAftersWithOutputData runAftersWithOutputData = new RunAftersWithOutputData(statement, afters, null,
             testInfoList, writableData, testReportContainer);
         return runAftersWithOutputData;
+    }
+
+    /**
+     * Determine the right class loader to use to load the class
+     * 
+     * @param fieldType
+     * @param testClass
+     * @return the classLoader or null if none found
+     */
+    protected ClassLoader determineClassLoader(Class<?> fieldType, Class<?> testClass) {
+        ClassLoader cl = testClass.getClassLoader();
+        try {
+            if (Class.forName(fieldType.getName(), false, cl) == fieldType) {
+                return cl;
+            } else {
+                cl = Thread.currentThread().getContextClassLoader();
+                if (Class.forName(fieldType.getName(), false, cl) == fieldType) {
+                    return cl;
+                }
+            }
+        } catch (ClassNotFoundException e) {
+            // TODO Auto-generated catch block
+            e.printStackTrace();
+        }
+        return null;
     }
 
 }
