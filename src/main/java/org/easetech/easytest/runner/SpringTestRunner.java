@@ -24,8 +24,10 @@ import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+
 import net.sf.cglib.proxy.Enhancer;
 import net.sf.cglib.proxy.Factory;
+
 import org.easetech.easytest.annotation.Converters;
 import org.easetech.easytest.annotation.DataLoader;
 import org.easetech.easytest.annotation.Duration;
@@ -63,6 +65,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.aop.framework.AopConfigException;
 import org.springframework.aop.framework.ProxyFactory;
 import org.springframework.test.context.junit4.SpringJUnit4ClassRunner;
+import org.springframework.test.context.junit4.statements.RunAfterTestClassCallbacks;
 
 /**
  * A {@link SpringJUnit4ClassRunner} Runner extension that adds support of input parameters as part of the {@link Test}
@@ -426,7 +429,7 @@ public class SpringTestRunner extends SpringJUnit4ClassRunner {
                 throw new RuntimeException(e);
             }
         }
-        return new InternalParameterizedStatement((EasyFrameworkMethod) method, getTestClass(), testInstance);
+        return new InternalParameterizedStatement(null, (EasyFrameworkMethod) method, getTestClass(), testInstance);
     }
 
     private void handleDuration(FrameworkMethod method, Object testInstance) throws IllegalArgumentException,
@@ -565,7 +568,7 @@ public class SpringTestRunner extends SpringJUnit4ClassRunner {
         }
         RunAftersWithOutputData runAftersWithOutputData = new RunAftersWithOutputData(statement, afters, null,
             testInfoList, writableData, testReportContainer);
-        return runAftersWithOutputData;
+        return new RunAfterTestClassCallbacks(runAftersWithOutputData, getTestContextManager());
     }
 
     /**
